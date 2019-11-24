@@ -27,5 +27,7 @@ struct SystemCallState
 #define FAN_ON GPIO_SetBits(GPIOB, GPIO_Pin_6);
 #define FAN_ON_TEMP 50
 #define FAN_OFF_TEMP 40
+#define OTP_TRIG_TEMP 80
+#define OTP_FALLBACK_TEMP 65
 
 void TaskSystemControl(void *arg);

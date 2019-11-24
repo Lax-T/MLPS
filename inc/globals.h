@@ -53,4 +53,13 @@ struct SystemEventMessage
 #define BLOCKING_ERROR 1
 #define NON_BLOCKING_ERROR 2
 
+// Low input voltage notification
+#define LO_UIN_TRESHOLD 115 // 11.5 V
+#define LO_UIN_DELTA 20 // 2.0 V
+#define LO_UIN_HYST 1 //0.1V
+
+#define TRUE 1
+#define FALSE 0
+
+
 
