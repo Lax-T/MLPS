@@ -27,6 +27,8 @@
 #define GR_STR_LAST 25
 #define GR_STR_ON 26
 #define GR_STR_ERR 27
+#define GR_STR_OTP 28
+#define GR_STR_LO 29
 
 unsigned char grTranslateToSegment(unsigned char value);
 

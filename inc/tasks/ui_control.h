@@ -10,6 +10,9 @@
 #define UI_MSG_OUT_STATE 0x05
 #define UI_MSG_SETTINGS 0x06
 #define UI_MSG_ERROR 0x07
+#define UI_MSG_OTP_STATE 0x08
+#define UI_MSG_UVP_STATE 0x09
+
 
 /* Calibration states in system to UI responses (UI_MSG_CALL_STATE) */
 #define CALL_STATE_READY 1

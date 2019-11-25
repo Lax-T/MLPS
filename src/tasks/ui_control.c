@@ -41,6 +41,8 @@
 #define BLINK_BIT_PERIOD 5
 
 #define UI_FLAG_OUT_STATE 0x01
+#define UI_FLAG_LO_UIN 0x10
+#define UI_FLAG_OTP 0x20
 #define UI_FLAG_KEY_LOCK 0x40
 
 static unsigned char g_const_btn_alternate[] = {
@@ -52,7 +54,7 @@ unsigned char g_led_buffer = 0; // 7 - CC/CV LED auto update, 2 - CV led, 1 - CC
 unsigned char g_view_id = 0;
 unsigned char g_sub_view_id = 0;
 unsigned char g_error_code = 0;
-unsigned char g_flags = 0; // 7 - error, 0 - out on, 6 - key lock
+unsigned char g_flags = 0;
 unsigned short g_settings_1 = 0;
 // Correction related variables
 unsigned char g_call_type = 0;
@@ -197,12 +199,26 @@ void checkEventQueue() {
 		case UI_MSG_UIN_TREG_VALUES:
 			g_u_in_value = message.data[0];
 			g_t_reg_value = message.data[1];
+			// Check input voltage value
+			if (g_u_in_value < LO_UIN_TRESHOLD || (g_u_in_value - LO_UIN_DELTA) < (g_volt_set_value / 10)) {
+				g_flags |= UI_FLAG_LO_UIN;
+			}
+			if (g_u_in_value >= (LO_UIN_TRESHOLD + LO_UIN_HYST) && (g_u_in_value - LO_UIN_DELTA - LO_UIN_HYST) >= (g_volt_set_value / 10)) {
+				g_flags &= ~UI_FLAG_LO_UIN;
+			}
 			break;
 		case UI_MSG_CALL_STATE:
 			uic_handleCallCommand(message);
 			break;
 		case UI_MSG_OUT_STATE:
-			g_flags = (g_flags & 0xFE) | (message.data[0] & 0x01);
+			g_flags = (g_flags & ~UI_FLAG_OUT_STATE) | (message.data[0] & 0x01);
+			break;
+		case UI_MSG_OTP_STATE:
+			if (message.data[0] & 0x01) {
+				g_flags |= UI_FLAG_OTP;
+			} else {
+				g_flags &= ~UI_FLAG_OTP;
+			}
 			break;
 		case UI_MSG_SETTINGS:
 			g_settings_1 = message.data[0];
@@ -340,8 +356,10 @@ void uic_genericHandlerGoToMenu() {
 }
 
 void uic_genericHandlerToggleOutput() {
-	g_flags = g_flags ^ 0x01;
-	sendNewOutState();
+	if ((g_flags & UI_FLAG_OTP) == 0) {
+		g_flags = g_flags ^ 0x01;
+		sendNewOutState();
+	}
 }
 
 void uic_genericHandlerCursorLeft() {
@@ -464,10 +482,12 @@ void uic_callSubMenuDown() {
 }
 
 void uic_callSubMenuStart() {
-	g_call_type = call_sub_views_to_type_map[g_sub_view_id];
-	g_call_step = CALL_STEP_WAIT_START;
-	g_view_id = VIEW_CALL;
-	uic_sendCallCmd(CALL_CMD_START, g_call_type);
+	if ((g_flags & UI_FLAG_OTP) == 0) {
+		g_call_type = call_sub_views_to_type_map[g_sub_view_id];
+		g_call_step = CALL_STEP_WAIT_START;
+		g_view_id = VIEW_CALL;
+		uic_sendCallCmd(CALL_CMD_START, g_call_type);
+	}
 }
 
 void uic_callSubMenuGoBack() {
@@ -679,12 +699,24 @@ unsigned char call_view_text_strings_btm[] = {GR_STR_3DOT, GR_STR_OUT, GR_STR_BL
 #define CALL_STEP_RUN 3
 #define CALL_STEP_DONE 4
 #define CALL_STEP_FAIL 5
+
 */
 
 void renderView() {
 	switch (g_view_id) {
 
 	case VIEW_MAIN:
+		if ((g_flags & UI_FLAG_OTP) != 0 && g_blink_bit) {
+			grFormatStr(g_seg_buffer, GR_STR_OTP, 0);
+			grFormatStr(g_seg_buffer, GR_STR_BLANK, 4);
+			break;
+		} else if (g_flags & UI_FLAG_LO_UIN) {
+			if (g_blink_bit) {
+				grFormatStr(g_seg_buffer, GR_STR_LO, 0);
+				grFormatStr(g_seg_buffer, GR_STR_U_IN, 4);
+				break;
+			}
+		}
 		g_top_row = g_volt_adc_value;
 		g_btm_row = g_curr_adc_value;
 		grFormatInt4(g_seg_buffer, g_top_row, 0);

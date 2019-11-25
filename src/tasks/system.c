@@ -18,8 +18,6 @@
 #define COR_COEF_DAC_CURRENT 2.7343*/
 
 #define SYS_TASK_TICK_PERIOD 20
-#define SYS_STATE_NORMAL 0
-#define SYS_STATE_CALL 1
 #define CALL_FLAG_COLLECT_DATA 0
 #define CALL_FLAG_DATA_READY 1
 #define CALL_FLAG_CALL_READY 2
@@ -29,7 +27,9 @@
 #define OUT_OFF 0
 #define SYS_FLAG_OFF_LOCK 0x01
 #define SYS_FLAG_CLL_MOD 0x04
-#define SYS_FLAG_T_SENSOR_FAIL 0x40
+#define SYS_FLAG_UVP 0x10
+#define SYS_FLAG_T_SENSOR_FAIL 0x20
+#define SYS_FLAG_OTP 0x40
 
 unsigned char g_sys_flags = 0;
 // Calibration related
@@ -60,6 +60,7 @@ unsigned char sys_updateFanState(unsigned char current_state, unsigned short tem
 void sys_updateUIOutState(unsigned char out_state);
 void sys_updateUISettings();
 void sys_sendUIErrorState(unsigned char error_code, unsigned char error_action);
+void sys_sendUIOTPState(unsigned char state);
 
 
 /* Main system task */
@@ -118,7 +119,7 @@ void TaskSystemControl(void *arg) {
 			break;
 
 		case 1:
-			state_counter++;
+			state_counter = 2;
 			adc_raw = adcReadData();
 			if ((g_sys_call_type == CALL_TYPE_U_HI || g_sys_call_type == CALL_TYPE_U_OFF) && CHECK_BIT(g_call_flags, CALL_FLAG_COLLECT_DATA)) {
 				sys_collectDataForCall(adc_raw);
@@ -133,7 +134,7 @@ void TaskSystemControl(void *arg) {
 			break;
 
 		case 2:
-			state_counter = 0;
+			state_counter = 1;
 			adc_raw = adcReadData();
 			if ((g_sys_call_type == CALL_TYPE_I_HI || g_sys_call_type == CALL_TYPE_I_OFF) && CHECK_BIT(g_call_flags, CALL_FLAG_COLLECT_DATA)) {
 				sys_collectDataForCall(adc_raw);
@@ -177,6 +178,7 @@ void TaskSystemControl(void *arg) {
 			ui_message.data[1] = adc_current;
 			xQueueSend(xQueueUIEvent, (void *) &ui_message, 0);
 			uicNotifyUITask(UI_EVENT_WAKE_UP);
+			adcStartVoltageConvertion();
 			break;
 		}
 
@@ -186,10 +188,27 @@ void TaskSystemControl(void *arg) {
 			uicNotifyUITask(UI_EVENT_PERIODIC);
 			input_voltage = (unsigned short)(iadcMeasureInputVoltage() / INPUT_VOLTAGE_CORR_COEFF);
 			reg_temperature = iadcMeasureRegTemp();
+			// Check ADC output for sensor fail
 			if (iadc_validateResult(reg_temperature)) {
 				reg_temperature = cl_calculateTemperature(reg_temperature);
+				// If temperature is valid, perform OTP check
+				if (MASK_BIT(g_sys_flags, SYS_FLAG_OTP) == 0) {
+					if (reg_temperature >= OTP_TRIG_TEMP) {
+						g_sys_flags |= SYS_FLAG_OTP;
+						sys_setOutState(OUT_OFF);
+						sys_updateUIOutState(OUT_OFF);
+						sys_sendUIOTPState(TRUE);
+					}
+				}
+				else {
+					if (reg_temperature <= OTP_FALLBACK_TEMP) {
+						g_sys_flags &= ~SYS_FLAG_OTP;
+						sys_sendUIOTPState(FALSE);
+					}
+				}
 			}
 			else {
+				reg_temperature = 0; // Since data is invalid - set zero
 				if (MASK_BIT(g_sys_flags, SYS_FLAG_T_SENSOR_FAIL) == 0) {
 					g_sys_flags |= SYS_FLAG_T_SENSOR_FAIL;
 					last_error = ERROR_T_SENSOR;
@@ -200,6 +219,7 @@ void TaskSystemControl(void *arg) {
 			fan_state = sys_updateFanState(fan_state, reg_temperature, g_sys_flags);
 		}
 
+		//If conditions are met, execute calibration task
 		if (CHECK_BIT(g_call_flags, CALL_FLAG_DATA_READY) && CHECK_BIT(g_call_flags, CALL_FLAG_CALL_READY)) {
 			sys_Callibrate();
 			sys_setOutState(0);
@@ -229,8 +249,8 @@ void sys_checkEventQueue() {
 			}
 			break;
 		case SYS_MSG_OUT_STATE:
-			// If out is locked in OFF state, ignore change out state message
-			if ((g_sys_flags & SYS_FLAG_OFF_LOCK) == 0) {
+			// If out is locked in OFF state or OTP, ignore change out state message
+			if ((g_sys_flags & SYS_FLAG_OFF_LOCK) == 0 && (g_sys_flags & SYS_FLAG_OTP) == 0) {
 				sm_SetShortOpVal(OP_VAL_OUT_STATE, sys_message.data[0]);
 				sys_setOutState(sm_GetShortOpVal(OP_VAL_OUT_STATE));
 				sys_updateUIOutState(sm_GetShortOpVal(OP_VAL_OUT_STATE));
@@ -293,6 +313,13 @@ void sys_sendUIErrorState(unsigned char error_code, unsigned char error_action) 
 	ui_message.type = UI_MSG_ERROR;
 	ui_message.data[0] = error_code;
 	ui_message.data[1] = error_action;
+	xQueueSend(xQueueUIEvent, (void *) &ui_message, 0);
+}
+
+void sys_sendUIOTPState(unsigned char state) {
+	struct UIEventMessage ui_message;
+	ui_message.type = UI_MSG_OTP_STATE;
+	ui_message.data[0] = state;
 	xQueueSend(xQueueUIEvent, (void *) &ui_message, 0);
 }
 
