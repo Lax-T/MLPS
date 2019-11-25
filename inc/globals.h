@@ -36,10 +36,10 @@ struct SystemEventMessage
 #define CALL_TYPE_U_HI 2
 #define CALL_TYPE_I_HI 3
 
-#define CALL_REF_U_HI 1400
-#define CALL_REF_I_HI 2200
-#define CALL_REF_U_OFF 1000
-#define CALL_REF_I_OFF 500
+#define CALL_REF_U_HI 1400 // 14 V
+#define CALL_REF_I_HI 2200 // 2.2 A
+#define CALL_REF_U_OFF 1000 // 1000 / 100 = 10 mV
+#define CALL_REF_I_OFF 500 // 500 / 100 = 5 mA
 #define CALL_REF_OFF_MULT 100
 
 // Error codes
@@ -56,10 +56,14 @@ struct SystemEventMessage
 // Low input voltage notification
 #define LO_UIN_TRESHOLD 115 // 11.5 V
 #define LO_UIN_DELTA 20 // 2.0 V
-#define LO_UIN_HYST 1 //0.1V
+#define LO_UIN_HYST 1 // 0.1 V
+#define CALL_MIN_UIN 190 // 19.0 V
 
 #define TRUE 1
 #define FALSE 0
+
+#define OUT_ON 1
+#define OUT_OFF 0
 
 
 

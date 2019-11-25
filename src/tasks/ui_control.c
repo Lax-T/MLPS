@@ -50,7 +50,7 @@ static unsigned char g_const_btn_alternate[] = {
 		BTN_STATE_NONE, BTN_STATE_WAIT_REPEAT, BTN_STATE_NONE, BTN_STATE_NONE};
 
 unsigned char g_seg_buffer[] = {0x55, 0x55, 0x55, 0x55, 0xff, 0xff, 0xff, 0xff};
-unsigned char g_led_buffer = 0; // 7 - CC/CV LED auto update, 2 - CV led, 1 - CC led, 0 - out on
+unsigned char g_led_buffer = 0;
 unsigned char g_view_id = 0;
 unsigned char g_sub_view_id = 0;
 unsigned char g_error_code = 0;
@@ -100,9 +100,7 @@ void uicNotifyUITask(unsigned int event_type) {
 void TaskUIControl(void *arg) {
 	unsigned int NotifiedValue;
 	unsigned int xResult;
-	//unsigned char btn_state = 0;
-	//const TickType_t xMaxBlockTime = pdMS_TO_TICKS( 2000 );
-	//unsigned char counter = 0;
+
 	renderView();
 	writeDisplayBuffer(g_seg_buffer, g_led_buffer);
 
@@ -482,7 +480,7 @@ void uic_callSubMenuDown() {
 }
 
 void uic_callSubMenuStart() {
-	if ((g_flags & UI_FLAG_OTP) == 0) {
+	if ((g_flags & UI_FLAG_OTP) == 0 && g_u_in_value >= CALL_MIN_UIN) {
 		g_call_type = call_sub_views_to_type_map[g_sub_view_id];
 		g_call_step = CALL_STEP_WAIT_START;
 		g_view_id = VIEW_CALL;
