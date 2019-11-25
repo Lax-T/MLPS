@@ -23,8 +23,6 @@
 #define CALL_FLAG_CALL_READY 2
 #define CALL_DATASET_SIZE 20
 
-#define OUT_ON 1
-#define OUT_OFF 0
 #define SYS_FLAG_OFF_LOCK 0x01
 #define SYS_FLAG_CLL_MOD 0x04
 #define SYS_FLAG_UVP 0x10
@@ -78,9 +76,10 @@ void TaskSystemControl(void *arg) {
 	unsigned char reg_fail_counter = 0;
 	struct UIEventMessage ui_message;
 	ui_message.type = UI_MSG_ADC_VALUES;
-
+	// Startup operations
+	// Init internal (secondary) ADC
 	iadcInit();
-	// Startup methods
+	// Load settings and correction coefficients from EEPROM. If 'CODE' is  non zero, send error to UI
 	temp_uchar = sm_LoadOpValues();
 	if (temp_uchar != 0) { //If non zero code (memory error)
 		if (MASK_BIT(temp_uchar, BLOCK_1_ERR_BIT)) {
@@ -90,41 +89,42 @@ void TaskSystemControl(void *arg) {
 			last_error = ERROR_MEM_BLOCK_2;
 		}
 		else {
-			last_error = ERROR_UNKNOWN;
+			last_error = ERROR_UNKNOWN; // To avoid undefined system state
 		}
+		// Send message to UI, to inform user that setting/correction coefficients may be corrupted
 		sys_sendUIErrorState(last_error, NON_BLOCKING_ERROR);
 	}
+	// Turn OUT on/off depending on setting/last state
 	switch(sm_GetShortOpVal(OP_VAL_SETTINGS_1) & SETT_MASK_PON_STATE) {
 	case PON_STATE_OFF:
-		sys_setOutState(0);
-		sys_updateUIOutState(0);
+		sys_setOutState(OUT_OFF);
+		sys_updateUIOutState(OUT_OFF);
 		break;
 	case PON_STATE_LAST:
 		sys_setOutState(sm_GetShortOpVal(OP_VAL_OUT_STATE));
 		sys_updateUIOutState(sm_GetShortOpVal(OP_VAL_OUT_STATE));
 		break;
 	case PON_STATE_ON:
-		sys_setOutState(1);
-		sys_updateUIOutState(1);
+		sys_setOutState(OUT_ON);
+		sys_updateUIOutState(OUT_ON);
 		break;
 	}
+	// Sync settings values with UI
 	sys_updateUISettings();
 	sys_updateUISetValues();
-
+	//Start first, main ADC conversion (voltage)
+	adcStartVoltageConvertion();
+	//Enter task loop
 	while (1) {
 		switch (state_counter) {
-		case 0:
-			state_counter++;
-			adcStartVoltageConvertion();
-			break;
-
 		case 1:
-			state_counter = 2;
 			adc_raw = adcReadData();
+			// If required, collect raw ADC data for correction
 			if ((g_sys_call_type == CALL_TYPE_U_HI || g_sys_call_type == CALL_TYPE_U_OFF) && CHECK_BIT(g_call_flags, CALL_FLAG_COLLECT_DATA)) {
 				sys_collectDataForCall(adc_raw);
 			}
-			if (cl_checkOverTreshold(adc_raw, ZERO_TRESHOLD)) {
+			// To avoid zero 'flickering', if ADC value below threshold - display zero
+			if (cl_checkOverTreshold(adc_raw, ZERO_DISPLAY_TRESHOLD)) {
 				adc_voltage = cl_calculateADCValue(adc_raw, sm_GetFloatOpVal(OP_VAL_UADC_CORR), sm_GetShortOpVal(OP_VAL_UADC_ZERO));
 			}
 			else {
@@ -134,40 +134,43 @@ void TaskSystemControl(void *arg) {
 			break;
 
 		case 2:
-			state_counter = 1;
+			state_counter = 0; // After increment, it will be 1 (on the next cycle, case:1 will be entered)
 			adc_raw = adcReadData();
+			// If required, collect raw ADC data for correction
 			if ((g_sys_call_type == CALL_TYPE_I_HI || g_sys_call_type == CALL_TYPE_I_OFF) && CHECK_BIT(g_call_flags, CALL_FLAG_COLLECT_DATA)) {
 				sys_collectDataForCall(adc_raw);
 			}
-			if (cl_checkOverTreshold(adc_raw, ZERO_TRESHOLD)) {
+			// To avoid zero 'flickering', if ADC value below threshold - display zero
+			if (cl_checkOverTreshold(adc_raw, ZERO_DISPLAY_TRESHOLD)) {
 				adc_current = cl_calculateADCValue(adc_raw, sm_GetFloatOpVal(OP_VAL_IADC_CORR), sm_GetShortOpVal(OP_VAL_IADC_ZERO));
 			}
 			else {
 				adc_current = 0;
 			}
-			// Check for regulation fail
+			// If out ON and not in call mode, check for regulation fail
 			if (sm_GetShortOpVal(OP_VAL_OUT_STATE) && MASK_BIT(g_sys_flags, SYS_FLAG_CLL_MOD) == 0) {
 				if (adc_voltage > VREG_ERR_TRESHOLD && adc_current > VREG_ERR_MIN_CURRENT && (adc_voltage - VREG_ERR_TRESHOLD) > sm_GetShortOpVal(OP_VAL_SET_VOLT)) {
 					reg_fail_counter++;
-					if (reg_fail_counter >= 3) {
+					if (reg_fail_counter >= REG_FAIL_DELAY_CYCLES) {
 						last_error = ERROR_VOLTAGE_REG;
 					}
 				}
 				else if (adc_current > CREG_ERR_TRESHOLD && (adc_current - CREG_ERR_TRESHOLD) > sm_GetShortOpVal(OP_VAL_SET_CURR)) {
 					reg_fail_counter++;
-					if (reg_fail_counter >= 3) {
+					if (reg_fail_counter >= REG_FAIL_DELAY_CYCLES) {
 						last_error = ERROR_CURRENT_REG;
 					}
 				}
 				else {
 					reg_fail_counter = 0;
 				}
-				if (reg_fail_counter >= 3) {
-					sys_setOutState(0);
-					sys_updateUIOutState(0);
+				if (reg_fail_counter >= REG_FAIL_DELAY_CYCLES) {
+					sys_setOutState(OUT_OFF);
+					sys_updateUIOutState(OUT_OFF);
 					g_sys_flags |= SYS_FLAG_OFF_LOCK;
 					sys_sendUIErrorState(last_error, BLOCKING_ERROR);
-					sm_SetShortOpVal(OP_VAL_OUT_STATE, 0);
+					sm_SetShortOpVal(OP_VAL_OUT_STATE, OUT_OFF);
+					sm_DumpOpValues();
 				}
 			}
 			else {
@@ -181,11 +184,14 @@ void TaskSystemControl(void *arg) {
 			adcStartVoltageConvertion();
 			break;
 		}
+		state_counter++;
 
 		tick_period_divider++;
 		if (tick_period_divider >= 2) {
 			tick_period_divider = 0;
+			// Since UI is button event driven, this event is used sync timed events, for example dot blinking
 			uicNotifyUITask(UI_EVENT_PERIODIC);
+			// Measure input voltage and regulator temperature
 			input_voltage = (unsigned short)(iadcMeasureInputVoltage() / INPUT_VOLTAGE_CORR_COEFF);
 			reg_temperature = iadcMeasureRegTemp();
 			// Check ADC output for sensor fail
@@ -215,19 +221,20 @@ void TaskSystemControl(void *arg) {
 					sys_sendUIErrorState(last_error, NON_BLOCKING_ERROR);
 				}
 			}
+			// Send update UIn and temperature values to UI
 			sys_updateUIUInTregValues(input_voltage, reg_temperature);
 			fan_state = sys_updateFanState(fan_state, reg_temperature, g_sys_flags);
 		}
 
-		//If conditions are met, execute calibration task
+		//If conditions are met, execute calibration subtask
 		if (CHECK_BIT(g_call_flags, CALL_FLAG_DATA_READY) && CHECK_BIT(g_call_flags, CALL_FLAG_CALL_READY)) {
 			sys_Callibrate();
-			sys_setOutState(0);
-			sys_updateUIOutState(0);
 		}
-
+		// Check queue
 		sys_checkEventQueue();
+		// Periodic event for settings manager (to avoid creating separate thread)
 		sm_PeriodicWrite();
+		// Sleep
 		vTaskDelay(SYS_TASK_TICK_PERIOD);
 	}
 }
@@ -329,8 +336,8 @@ void sys_handleCallCommand(struct SystemEventMessage sys_message) {
 	switch (sys_message.data[0]) {
 	case CALL_CMD_START:
 		g_sys_flags |= SYS_FLAG_CLL_MOD;
-		sys_setOutState(0);
-		sys_updateUIOutState(0);
+		sys_setOutState(OUT_OFF);
+		sys_updateUIOutState(OUT_OFF);
 		sm_SetShortOpVal(OP_VAL_OUT_STATE, 0); // To keep out state in sync with memory
 		g_sys_call_type = sys_message.data[1];
 		sys_updateUICallState(CALL_STATE_READY, 0);
@@ -346,24 +353,24 @@ void sys_handleCallCommand(struct SystemEventMessage sys_message) {
 		break;
 	case CALL_CMD_RESET:
 		g_sys_flags &= ~SYS_FLAG_CLL_MOD;
-		sys_setOutState(0);
-		sys_updateUIOutState(0);
+		sys_setOutState(OUT_OFF);
+		sys_updateUIOutState(OUT_OFF);
 		break;
 	}
 }
 
 void sys_setOutState(unsigned char new_state) {
 	/* Update output sate. 0 - Out off, 1 - out on. */
-	if (new_state == 1) {
+	if (new_state == OUT_ON) {
 		dac_writeCDAC(0x0000);
 		dac_writeUDAC(0x0000);
 		mSDelay(5);
-		GPIO_SetBits(GPIOB, GPIO_Pin_7);
+		mOUT_ON;
 		updateUDAC(sm_GetShortOpVal(OP_VAL_SET_VOLT));
 		updateCDAC(sm_GetShortOpVal(OP_VAL_SET_CURR));
 	}
 	else {
-		GPIO_ResetBits(GPIOB, GPIO_Pin_7);
+		mOUT_OFF;
 		dac_writeUDAC(0x000F);
 		dac_writeCDAC(0x000F);
 	}
@@ -392,7 +399,7 @@ void setOutSateForCorrection() {
 	}
 	updateUDAC(u_dac_value);
 	updateCDAC(c_dac_value);
-	GPIO_SetBits(GPIOB, GPIO_Pin_7);
+	mOUT_ON;
 }
 
 void updateUDAC(unsigned short uncorrected_value) {
@@ -408,18 +415,18 @@ void updateCDAC(unsigned short uncorrected_value) {
 unsigned char sys_updateFanState(unsigned char current_state, unsigned short temperature, unsigned char flags) {
 	/* Define and update fan sate considering: current state, temperature, presence of errors. */
 	if((flags & SYS_FLAG_T_SENSOR_FAIL) != 0) { // In case of sensor fail - always ON
-		FAN_ON;
+		mFAN_ON;
 		return 1;
 	}
 	if (current_state == 0) { // If current state - OFF
 		if (temperature >= FAN_ON_TEMP) {
-			FAN_ON;
+			mFAN_ON;
 			return 1;
 		}
 	}
 	else { // If current state - ON
 		if (temperature <= FAN_OFF_TEMP) {
-			FAN_OFF;
+			mFAN_OFF;
 			return 0;
 		}
 	}
@@ -499,19 +506,6 @@ void sys_Callibrate() {
 		sm_SetShortOpVal(OP_VAL_UDAC_ZERO, offset);
 
 		// Calculate ADC offset value
-		/*
-		raw_adc_val = cl_averageDataset(g_call_dataset, CALL_DATASET_SIZE);
-		if (raw_adc_val < 0) {
-			offset = (unsigned short)((~raw_adc_val & 0x7FFFFFFF) + 1);
-		}
-		else if (raw_adc_val > 0) {
-			offset = (unsigned short)(raw_adc_val);
-			offset |= 0x8000;
-		}
-		else {
-			offset = 0;
-		}
-		sm_SetShortOpVal(OP_VAL_IADC_ZERO, offset);*/
 		raw_adc_val = cl_averageDataset(g_call_dataset, CALL_DATASET_SIZE);
 		temp = (signed int)(sm_GetFloatOpVal(OP_VAL_UADC_CORR) * g_call_corr_value / 3.125);
 		if(raw_adc_val > temp) {
@@ -545,19 +539,6 @@ void sys_Callibrate() {
 		sm_SetShortOpVal(OP_VAL_IDAC_ZERO, offset);
 
 		// Calculate ADC offset value
-		/*
-		raw_adc_val = cl_averageDataset(g_call_dataset, CALL_DATASET_SIZE);
-		if (raw_adc_val < 0) {
-			offset = (unsigned short)((~raw_adc_val & 0x7FFFFFFF) + 1);
-		}
-		else if (raw_adc_val > 0) {
-			offset = (unsigned short)(raw_adc_val);
-			offset |= 0x8000;
-		}
-		else {
-			offset = 0;
-		}
-		sm_SetShortOpVal(OP_VAL_UADC_ZERO, offset);*/
 		raw_adc_val = cl_averageDataset(g_call_dataset, CALL_DATASET_SIZE);
 		temp = (signed int)(sm_GetFloatOpVal(OP_VAL_IADC_CORR) * g_call_corr_value / 3.125);
 		if(raw_adc_val > temp) {
@@ -576,6 +557,8 @@ void sys_Callibrate() {
 	}
 	g_call_flags = 0;
 	sys_updateUICallState(CALL_STATE_DONE, 0);
+	sys_setOutState(OUT_OFF);
+	sys_updateUIOutState(OUT_OFF);
 }
 
 
