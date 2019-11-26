@@ -61,9 +61,12 @@ static unsigned char g_str_pon[] = {_P_, _dot_, _sp_, _0_, _N_};
 static unsigned char g_str_off[] = {_sp_, _0_, _F_, _F_};
 static unsigned char g_str_last[] = {_L_, _A_, _5_, _T_};
 static unsigned char g_str_on[] = {_sp_, _sp_, _0_, _N_};
-static unsigned char g_str_err[] = {_sp_, _E_, _R_, _R_};
+static unsigned char g_str_err[] = {_E_, _R_, _R_, _sp_};
 static unsigned char g_str_otp[] = {_0_, _T_, _P_, _sp_};
 static unsigned char g_str_lo[] = {_sp_, _L_, _0_, _sp_};
+static unsigned char g_str_hi[] = {_sp_, _H_, _1_, _sp_};
+static unsigned char g_str_lst_e[] = {_L_, _5_, _T_, _dot_, _E_ };
+static unsigned char g_str_no[] = {_sp_, _N_, _0_, _sp_};
 
 static unsigned char *g_str_list[] = {
 	g_str_menu, g_str_call, g_str_info, g_str_u_in, g_str_t_reg,
@@ -71,7 +74,9 @@ static unsigned char *g_str_list[] = {
 	g_str_blank, g_str_open, g_str_short, g_str_out, g_str_done,
 	g_str_fail, g_str_e, g_str_f, g_str_run, g_str_3dot,
 	g_str_u_cor, g_str_i_cor, g_str_cor, g_str_pon, g_str_off,
-	g_str_last, g_str_on, g_str_err, g_str_otp, g_str_lo};
+	g_str_last, g_str_on, g_str_err, g_str_otp, g_str_lo,
+	g_str_hi, g_str_lst_e, g_str_no
+};
 
 static unsigned char g_font[] = {
 	0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F, // 0 - 9
