@@ -20,7 +20,11 @@
 #define VIEW_T_REG 7
 #define VIEW_CALL 8
 #define VIEW_PON_SATE 9
-#define VIEW_ERROR 10
+#define VIEW_POPUP 10
+
+#define POPUP_ERROR 1
+#define POPUP_LO_UIN 2
+#define POPUP_HI_T 3
 
 #define CALL_STEP_WAIT_START 0
 #define CALL_STEP_CONFIRM 1
@@ -54,6 +58,8 @@ unsigned char g_led_buffer = 0;
 unsigned char g_view_id = 0;
 unsigned char g_sub_view_id = 0;
 unsigned char g_error_code = 0;
+unsigned char g_popup_fallback_view = 0;
+unsigned char g_popup_code = 0;
 unsigned char g_flags = 0;
 unsigned short g_settings_1 = 0;
 // Correction related variables
@@ -89,6 +95,7 @@ void processButtonPress(unsigned char btn_n);
 void renderView();
 void blinkDigit(unsigned char pos, unsigned char row);
 void uic_handleCallCommand(struct UIEventMessage message);
+void showPopUp(unsigned char code);
 
 /* Code section */
 /*Notify (wake up) UI handle task*/
@@ -186,14 +193,17 @@ void checkEventQueue() {
 
 	while(xQueueReceive(xQueueUIEvent, &(message), 0)) {
 		switch (message.type) {
+
 		case UI_MSG_ADC_VALUES:
 			g_volt_adc_value = message.data[0];
 			g_curr_adc_value = message.data[1];
 			break;
+
 		case UI_MSG_OUT_SET_VALUES:
 			g_volt_set_value = message.data[0];
 			g_curr_set_value = message.data[1];
 			break;
+
 		case UI_MSG_UIN_TREG_VALUES:
 			g_u_in_value = message.data[0];
 			g_t_reg_value = message.data[1];
@@ -205,12 +215,15 @@ void checkEventQueue() {
 				g_flags &= ~UI_FLAG_LO_UIN;
 			}
 			break;
+
 		case UI_MSG_CALL_STATE:
 			uic_handleCallCommand(message);
 			break;
+
 		case UI_MSG_OUT_STATE:
 			g_flags = (g_flags & ~UI_FLAG_OUT_STATE) | (message.data[0] & 0x01);
 			break;
+
 		case UI_MSG_OTP_STATE:
 			if (message.data[0] & 0x01) {
 				g_flags |= UI_FLAG_OTP;
@@ -218,16 +231,17 @@ void checkEventQueue() {
 				g_flags &= ~UI_FLAG_OTP;
 			}
 			break;
+
 		case UI_MSG_SETTINGS:
 			g_settings_1 = message.data[0];
 			break;
+
 		case UI_MSG_ERROR:
 			g_error_code = message.data[0];
 			if (message.data[1] == BLOCKING_ERROR) {
 				g_flags |= UI_FLAG_KEY_LOCK;
 			}
-			g_view_id = VIEW_ERROR;
-			g_sub_view_id = 0;
+			showPopUp(POPUP_ERROR);
 			break;
 		}
 	}
@@ -281,6 +295,15 @@ void uic_handleCallCommand(struct UIEventMessage message) {
 		g_error_code = message.data[1];
 		break;
 	}
+}
+
+/* Stores current UI position and displays defined message. */
+void showPopUp(unsigned char code) {
+	// Store current values for return
+	g_popup_fallback_view = g_view_id;
+	// Set message code and view
+	g_popup_code = code;
+	g_view_id = VIEW_POPUP;
 }
 
 /* Generic UI control methods */
@@ -414,6 +437,10 @@ static void (*current_set_view_methods_list[])() = {uic_mainViewGoToUSet, uic_ge
 	uic_currSetViewIncCurrent, uic_genericHandlerCursorRight, uic_currSetViewDecCurrent, uic_genericHandlerToggleOutput, uic_genericHandlerGoToMenu};
 
 /* Main menu handler */
+#define MENU_SUB_VIEW_PON 0
+#define MENU_SUB_VIEW_INFO 1
+#define MENU_SUB_VIEW_CALL 2
+
 unsigned char main_menu_sub_views[] = {VIEW_PON_SATE, VIEW_INFO_SM, VIEW_CALL_SM};
 
 void uic_mainMenuDown() {
@@ -440,7 +467,7 @@ void uic_pOnViewDown() {
 
 void uic_pOnViewBack() {
 	g_view_id = VIEW_MENU;
-	g_sub_view_id = 0;
+	g_sub_view_id = MENU_SUB_VIEW_PON;
 }
 
 void uic_pOnViewSave() {
@@ -453,26 +480,34 @@ static void (*pon_view_methods_list[])() = {uic_genericHandlerNop, uic_genericHa
 	uic_genericHandlerMenuUp, uic_pOnViewSave, uic_pOnViewDown, uic_genericHandlerToggleOutput, uic_genericHandlerNop};
 
 /* Info sub menu handler */
-unsigned char info_menu_sub_views[] = {VIEW_U_IN, VIEW_T_REG};
+#define INFO_SUB_VIEW_UIN 0
+#define INFO_SUB_VIEW_TREG 1
+#define INFO_SUB_VIEW_LAST_E 2
+#define INFO_SUB_VIEW_TOTAL 2
+
+unsigned char info_menu_sub_views[] = {VIEW_U_IN, VIEW_T_REG, VIEW_POPUP};
 
 void uic_infoSubMenuDown() {
-	g_sub_view_id = increment8(g_sub_view_id, 1);
+	g_sub_view_id = increment8(g_sub_view_id, INFO_SUB_VIEW_TOTAL);
 }
 
 void uic_infoSubMenuGoToItem() {
+	if (g_sub_view_id == INFO_SUB_VIEW_LAST_E) {
+		g_popup_fallback_view = VIEW_INFO_SM;
+		g_popup_code = POPUP_ERROR;
+	}
 	g_view_id = info_menu_sub_views[g_sub_view_id];
-	g_sub_view_id = 0;
 }
 
 void uic_infoSubMenuGoBack() {
 	g_view_id = VIEW_MENU;
-	g_sub_view_id = 0;
+	g_sub_view_id = MENU_SUB_VIEW_INFO;
 }
 
 static void (*info_menu_view_methods_list[])() = {uic_genericHandlerNop, uic_genericHandlerNop, uic_infoSubMenuGoBack,
 	uic_genericHandlerMenuUp, uic_infoSubMenuGoToItem, uic_infoSubMenuDown, uic_genericHandlerToggleOutput, uic_genericHandlerNop};
 
-/* Call sub menu handler */
+/* Calibration sub menu handler */
 static unsigned char call_sub_views_to_type_map[] = {CALL_TYPE_U_OFF, CALL_TYPE_I_OFF, CALL_TYPE_U_HI, CALL_TYPE_I_HI};
 
 void uic_callSubMenuDown() {
@@ -480,7 +515,13 @@ void uic_callSubMenuDown() {
 }
 
 void uic_callSubMenuStart() {
-	if ((g_flags & UI_FLAG_OTP) == 0 && g_u_in_value >= CALL_MIN_UIN) {
+	if (g_flags & UI_FLAG_OTP) {
+		// If in OTP protection state, show popup and do not allow to enter in calibration state
+		showPopUp(POPUP_HI_T);
+	} else if (g_u_in_value < CALL_MIN_UIN) {
+		// If input voltage lover than required minimum, show popup and do not allow to enter in calibration state
+		showPopUp(POPUP_LO_UIN);
+	} else {
 		g_call_type = call_sub_views_to_type_map[g_sub_view_id];
 		g_call_step = CALL_STEP_WAIT_START;
 		g_view_id = VIEW_CALL;
@@ -490,7 +531,7 @@ void uic_callSubMenuStart() {
 
 void uic_callSubMenuGoBack() {
 	g_view_id = VIEW_MENU;
-	g_sub_view_id = 1;
+	g_sub_view_id = MENU_SUB_VIEW_CALL;
 }
 
 static void (*call_menu_view_methods_list[])() = {uic_genericHandlerNop, uic_genericHandlerNop, uic_callSubMenuGoBack,
@@ -499,7 +540,7 @@ static void (*call_menu_view_methods_list[])() = {uic_genericHandlerNop, uic_gen
 /* Input voltage display */
 void uic_uInViewGoBack() {
 	g_view_id = VIEW_INFO_SM;
-	g_sub_view_id = 0;
+	g_sub_view_id = INFO_SUB_VIEW_UIN;
 }
 
 static void (*u_in_view_methods_list[])() = {uic_genericHandlerNop, uic_genericHandlerNop, uic_uInViewGoBack,
@@ -508,22 +549,18 @@ static void (*u_in_view_methods_list[])() = {uic_genericHandlerNop, uic_genericH
 /* Reg temperature display */
 void uic_tRegViewGoBack() {
 	g_view_id = VIEW_INFO_SM;
-	g_sub_view_id = 1;
+	g_sub_view_id = INFO_SUB_VIEW_TREG;
 }
 
 static void (*t_reg_view_methods_list[])() = {uic_genericHandlerNop, uic_genericHandlerNop, uic_tRegViewGoBack,
 	uic_genericHandlerNop, uic_genericHandlerNop, uic_genericHandlerNop, uic_genericHandlerToggleOutput, uic_genericHandlerNop};
 
-/* Error */
-void uic_errorViewGoBack() {
-	g_sub_view_id++;
-	if (g_sub_view_id >= 3) {
-		g_sub_view_id = 0;
-		g_view_id = VIEW_MAIN;
-	}
+/* PopUp */
+void uic_popUpViewGoBack() {
+	g_view_id = g_popup_fallback_view;
 }
 
-static void (*error_view_methods_list[])() = {uic_genericHandlerNop, uic_genericHandlerNop, uic_errorViewGoBack,
+static void (*popup_view_methods_list[])() = {uic_genericHandlerNop, uic_genericHandlerNop, uic_popUpViewGoBack,
 	uic_genericHandlerNop, uic_genericHandlerNop, uic_genericHandlerNop, uic_genericHandlerNop, uic_genericHandlerNop};
 
 /*
@@ -537,7 +574,7 @@ static void (*error_view_methods_list[])() = {uic_genericHandlerNop, uic_generic
 /* Calibration view */
 void uic_callViewGoBack() {
 	g_view_id = VIEW_CALL_SM;
-	g_sub_view_id = 0;
+	// g_sub_view_id = 0; Keep last state
 	uic_sendCallCmd(CALL_CMD_RESET, 0);
 }
 
@@ -663,8 +700,9 @@ void processButtonPress(unsigned char btn_n) {
 			(*call_view_methods_list[btn_n])();
 			break;
 
-		case VIEW_ERROR:
-			(*error_view_methods_list[btn_n])();
+		// PopUp (message) view
+		case VIEW_POPUP:
+			(*popup_view_methods_list[btn_n])();
 			break;
 	}
 
@@ -686,7 +724,7 @@ void blinkDigit(unsigned char pos, unsigned char row) {
 
 unsigned char main_menu_text_strings[] = {GR_STR_PON, GR_STR_INFO, GR_STR_CALL};
 unsigned char pon_view_text_strings[] = {GR_STR_OFF, GR_STR_LAST, GR_STR_ON};
-unsigned char info_menu_text_strings[] = {GR_STR_U_IN, GR_STR_T_REG};
+unsigned char info_menu_text_strings[] = {GR_STR_U_IN, GR_STR_T_REG, GR_STR_LST_E};
 unsigned char call_menu_text_strings[] = {GR_STR_U_OFF, GR_STR_I_OFF, GR_STR_U_HI, GR_STR_I_HI};
 unsigned char call_view_text_strings_top[] = {GR_STR_CALL, GR_STR_BLANK, GR_STR_COR, GR_STR_CALL, GR_STR_DONE, GR_STR_FAIL};
 unsigned char call_view_text_strings_btm[] = {GR_STR_3DOT, GR_STR_OUT, GR_STR_BLANK, GR_STR_RUN, GR_STR_BLANK, GR_STR_E};
@@ -806,10 +844,30 @@ void renderView() {
 			}
 		}
 		break;
-	case VIEW_ERROR:
-		grFormatStr(g_seg_buffer, GR_STR_ERR, 0);
-		grFormatStr(g_seg_buffer, GR_STR_E, 4);
-		grFormatInt3(g_seg_buffer, g_error_code, 5);
+
+	case VIEW_POPUP:
+		// Select what to display based on the popup code
+		switch (g_popup_code) {
+		case POPUP_ERROR:
+			if (g_error_code == 0) {
+				grFormatStr(g_seg_buffer, GR_STR_NO, 0);
+				grFormatStr(g_seg_buffer, GR_STR_ERR, 4);
+
+			} else {
+				grFormatStr(g_seg_buffer, GR_STR_ERR, 0);
+				grFormatStr(g_seg_buffer, GR_STR_E, 4);
+				grFormatInt3(g_seg_buffer, g_error_code, 5);
+			}
+			break;
+		case POPUP_LO_UIN:
+			grFormatStr(g_seg_buffer, GR_STR_LO, 0);
+			grFormatStr(g_seg_buffer, GR_STR_U_IN, 4);
+			break;
+		case POPUP_HI_T:
+			grFormatStr(g_seg_buffer, GR_STR_HI, 0);
+			grFormatStr(g_seg_buffer, GR_STR_T_REG, 4);
+			break;
+		}
 		break;
 	}
 	g_led_buffer = g_flags & 0x01;
