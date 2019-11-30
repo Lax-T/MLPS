@@ -32,6 +32,9 @@
 #define GR_STR_HI 30
 #define GR_STR_LST_E 31
 #define GR_STR_NO 32
+#define GR_STR_SETT 33
+#define GR_STR_REST 34
+#define GR_STR_YES 35
 
 unsigned char grTranslateToSegment(unsigned char value);
 

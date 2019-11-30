@@ -8,7 +8,7 @@
 void mem_WriteRandomByte(unsigned short address, unsigned char data) {
 	unsigned char adr_h, adr_l;
 	adr_l = address & 0xFF;
-	adr_h = (address >> 8) & 0x07;
+	adr_h = (address >> 7) & 0x0E;
 
 	i2c_Start();
 	i2c_TXByte(EEPROM_ADDRESS | adr_h);
@@ -23,7 +23,7 @@ void mem_WriteRandomByte(unsigned short address, unsigned char data) {
 void mem_WriteBlock(unsigned short address, unsigned char data[], unsigned char block_size) {
 	unsigned char adr_h, adr_l, i;
 	adr_l = address & 0xFF;
-	adr_h = (address >> 8) & 0x07;
+	adr_h = (address >> 7) & 0x0E;
 
 	i2c_Start();
 	i2c_TXByte(EEPROM_ADDRESS | adr_h);
@@ -42,7 +42,7 @@ void mem_WriteBlock(unsigned short address, unsigned char data[], unsigned char 
 unsigned char mem_ReadRandomByte(unsigned short address) {
 	unsigned char adr_h, adr_l, data;
 	adr_l = address & 0xFF;
-	adr_h = (address >> 8) & 0x07;
+	adr_h = (address >> 7) & 0x0E;
 
 	i2c_Start();
 	i2c_TXByte(EEPROM_ADDRESS | adr_h);
@@ -62,7 +62,7 @@ unsigned char mem_ReadRandomByte(unsigned short address) {
 void mem_ReadBlock(unsigned short address, unsigned char data[], unsigned char block_size) {
 	unsigned char adr_h, adr_l, i;
 	adr_l = address & 0xFF;
-	adr_h = (address >> 8) & 0x07;
+	adr_h = (address >> 7) & 0x0E;
 
 	i2c_Start();
 	i2c_TXByte(EEPROM_ADDRESS | adr_h);

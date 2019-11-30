@@ -25,6 +25,7 @@ struct SystemEventMessage
 #define SYS_MSG_OUT_STATE 0x02
 #define SYS_MSG_CALL_CMD 0x03
 #define SYS_MSG_SETTINGS 0x04
+#define SYS_MSG_RESET 0x77
 
 #define CALL_CMD_START 1
 #define CALL_CMD_CONFIRM 2
@@ -47,6 +48,7 @@ struct SystemEventMessage
 #define ERROR_CURRENT_REG 12
 #define ERROR_MEM_BLOCK_1 51
 #define ERROR_MEM_BLOCK_2 52
+#define ERROR_MEM_FAIL 55
 #define ERROR_T_SENSOR 71
 #define ERROR_UNKNOWN 99
 

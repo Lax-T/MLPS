@@ -27,6 +27,7 @@
 #define _T_ 23
 #define _U_ 24
 #define _sp_ 25
+#define _Y_ 29
 #define _dot_ 30
 #define _3l_ 31
 #define _2l_ 32
@@ -67,6 +68,9 @@ static unsigned char g_str_lo[] = {_sp_, _L_, _0_, _sp_};
 static unsigned char g_str_hi[] = {_sp_, _H_, _1_, _sp_};
 static unsigned char g_str_lst_e[] = {_L_, _5_, _T_, _dot_, _E_ };
 static unsigned char g_str_no[] = {_sp_, _N_, _0_, _sp_};
+static unsigned char g_str_sett[] = {_5_, _E_, _T_, _T_};
+static unsigned char g_str_rest[] = {_R_, _E_, _5_, _T_};
+static unsigned char g_str_yes[] = {_Y_, _E_, _5_, _sp_};
 
 static unsigned char *g_str_list[] = {
 	g_str_menu, g_str_call, g_str_info, g_str_u_in, g_str_t_reg,
@@ -75,13 +79,14 @@ static unsigned char *g_str_list[] = {
 	g_str_fail, g_str_e, g_str_f, g_str_run, g_str_3dot,
 	g_str_u_cor, g_str_i_cor, g_str_cor, g_str_pon, g_str_off,
 	g_str_last, g_str_on, g_str_err, g_str_otp, g_str_lo,
-	g_str_hi, g_str_lst_e, g_str_no
+	g_str_hi, g_str_lst_e, g_str_no, g_str_sett, g_str_rest,
+	g_str_yes
 };
 
 static unsigned char g_font[] = {
 	0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F, // 0 - 9
 	0x77, 0x7C, 0x39, 0x7C, 0x79, 0x71, 0x3D, 0x76, 0x0E, 0x38, // A, B, C, D, E, F, G, H, J, L
-	0x54, 0x73, 0x50, 0x78, 0x3E, 0x00, 0x00, 0x00, 0x00, 0x00, // N, P, R, T, U,  ,  ,  ,  ,
+	0x54, 0x73, 0x50, 0x78, 0x3E, 0x00, 0x00, 0x00, 0x00, 0x6E, // N, P, R, T, U,  ,  ,  ,  , Y
 	0x80, 0x49, 0x48, 0x08, 0x40, 0x63}; // ., Z, =, _, -, grad
 
 /*Translate value to segment number/character*/

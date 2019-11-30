@@ -4,7 +4,7 @@
 
 #define WRITE_TIMEOUT 60
 #define WRITE_QUEUE_MAX_LEN 8
-#define FLOAT_OP_VALUES_N 4
+#define FLOAT_OP_VALUES_N 5
 #define SHORT_OP_VALUES_N 8
 
 #define SHORT_VALUES_OFFSET 10
@@ -15,7 +15,7 @@ unsigned short g_short_op_values[SHORT_OP_VALUES_N];
 unsigned char g_write_queue[] = {255, 255, 255, 255, 255, 255, 255, 255};
 unsigned char g_write_timeout = 0;
 
-static float g_float_defaults[] = {137.9705, 93.6228, 1.9042, 2.7343, 8.7};
+static float g_float_defaults[] = {137.9705, 93.6228, 1.9042, 2.7343, 8.55};
 static unsigned short g_short_defaults[] = {0, 0, 0, 0, 0, 100, 100, 0};
 static unsigned char g_crc8_table[] = {
     0, 94,188,226, 97, 63,221,131,194,156,126, 32,163,253, 31, 65,
@@ -39,6 +39,10 @@ static unsigned char g_crc8_table[] = {
 void sm_ScheduleValueWrite(unsigned char value_id);
 unsigned char sm_RecallValue(unsigned char value_id);
 void sm_StoreValue(unsigned char value_id);
+unsigned char sm_CheckMemMarkers();
+void sm_WriteMemMarkers();
+unsigned char sm_RecallAllValues();
+unsigned char sm_FormatMem();
 
 /* Main methods */
 float sm_GetFloatOpVal(unsigned char value_id) {
@@ -59,18 +63,33 @@ void sm_SetShortOpVal(unsigned char value_id, unsigned short op_value) {
 	sm_ScheduleValueWrite(value_id);
 }
 
-
+/* Loads all operating values (settings) from EEPROM on startup. */
 unsigned char sm_LoadOpValues() {
-	/* Loads all operating values (settings) from EEPROM on startup.
-	 *  If operation successful returns 1, else - 0; */
+	// Check memory markers
+	if (sm_CheckMemMarkers()) { // If markers are OK, proceed with normal load
+		return sm_RecallAllValues();
+	} else {
+		// If markers are wrong, format memory and try to read all values again to check memory
+		// Additional reread is perform to validate all memory cells. It's done, because it's unclear if
+		// markers were wrong because new EEPROM/software update (markers changed) or memory is damaged/non functional.
+		if (sm_FormatMem() && sm_RecallAllValues() == 0) {
+			// If sm_RecallAllValues exit code zero (no errors on load), return normal format flag
+			return MEM_FORMATTED;
+		} else {
+			// If format/reload failed return memory error flag
+			return MEM_ERROR;
+		}
+	}
+}
+
+unsigned char sm_RecallAllValues() {
 	unsigned char i;
 	unsigned char status_flags = 0;
-
 	// Load float operation values
 	for (i = 0; i < FLOAT_OP_VALUES_N; i++) {
 		if (sm_RecallValue(i) != 1) {
 			 g_float_op_values[i] = g_float_defaults[i];
-			 status_flags |= BLOCK_1_ERR_BIT;
+			 status_flags |= MEM_BLOCK_1_CRC;
 		}
 	}
 
@@ -79,15 +98,36 @@ unsigned char sm_LoadOpValues() {
 		if (sm_RecallValue(i + SHORT_VALUES_OFFSET) != 1) {
 			g_short_op_values[i] = g_short_defaults[i];
 			if ((i + SHORT_VALUES_OFFSET) < NON_CRITICAL_VAL_THRESHOLD) { // System setting affected
-				status_flags |= BLOCK_1_ERR_BIT;
+				status_flags |= MEM_BLOCK_1_CRC;
 			}
 			else { // Non system critical setting affected
-				status_flags |= BLOCK_2_ERR_BIT;
+				status_flags |= MEM_BLOCK_2_CRC;
 				sm_ScheduleValueWrite(i + SHORT_VALUES_OFFSET);
 			}
 		}
 	}
 	return status_flags;
+}
+
+unsigned char sm_FormatMem() {
+	unsigned char i;
+	// Load float defaults
+	for (i = 0; i < FLOAT_OP_VALUES_N; i++) {
+		g_float_op_values[i] = g_float_defaults[i];
+	}
+	// Load short operation values
+	for (i = 0; i < SHORT_OP_VALUES_N; i++) {
+		g_short_op_values[i] = g_short_defaults[i];
+	}
+	// Dump all values to memory
+	sm_ForceDumpAllOpValues();
+	// Write markers
+	sm_WriteMemMarkers();
+	// Validate
+	if (sm_CheckMemMarkers()) {
+		return 1;
+	}
+	return 0;
 }
 
 void sm_ForceDumpAllOpValues() {
@@ -181,6 +221,20 @@ unsigned short sm_ComposeShort(unsigned char value_components[]) {
 	return value;
 }
 
+unsigned char sm_CheckMemMarkers() {
+	if (mem_ReadRandomByte(MEM_MARKER_H_ADR) == MEM_MARKER_H || mem_ReadRandomByte(MEM_MARKER_L_ADR) == MEM_MARKER_L) {
+		return 1;
+	}
+	return 0;
+}
+
+void sm_WriteMemMarkers() {
+	mem_WriteRandomByte(MEM_MARKER_H_ADR, MEM_MARKER_H);
+	mSDelay(10);
+	mem_WriteRandomByte(MEM_MARKER_L_ADR, MEM_MARKER_L);
+	mSDelay(10);
+}
+
 //Calculate memory offset address
 unsigned short sm_CalcMemAddress(unsigned char value_id) {
 	if (value_id == 0) {
@@ -193,6 +247,7 @@ unsigned short sm_CalcMemAddress(unsigned char value_id) {
 		return value_id * 4 + 40;
 	}
 }
+
 
 unsigned char sm_RecallValue(unsigned char value_id) {
 	unsigned char data_buffer[5], buffer_len, i;
