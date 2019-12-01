@@ -287,7 +287,13 @@ void uic_sendResetCommand() {
 void uic_handleCallCommand(struct UIEventMessage message) {
 	switch (message.data[0]) {
 	case CALL_STATE_READY:
-		g_call_step = CALL_STEP_CONFIRM;
+		if (g_call_type) { // Skip confirmation for UIN correction (not needed)
+			g_btm_row = CALL_REF_U_IN;
+			g_call_step = CALL_STEP_CORR_INPUT;
+		}
+		else {
+			g_call_step = CALL_STEP_CONFIRM;
+		}
 		break;
 	case CALL_STATE_STARTED:
 		g_call_step = CALL_STEP_RUN;
@@ -519,10 +525,18 @@ static void (*info_menu_view_methods_list[])() = {uic_genericHandlerNop, uic_gen
 	uic_genericHandlerMenuUp, uic_infoSubMenuGoToItem, uic_infoSubMenuDown, uic_genericHandlerToggleOutput, uic_genericHandlerNop};
 
 /* Calibration sub menu handler */
-static unsigned char call_sub_views_to_type_map[] = {CALL_TYPE_U_OFF, CALL_TYPE_I_OFF, CALL_TYPE_U_HI, CALL_TYPE_I_HI};
+#define CALL_SUB_VIEW_UOFF 0
+#define CALL_SUB_VIEW_IOFF 1
+#define CALL_SUB_VIEW_UHI 2
+#define CALL_SUB_VIEW_IHI 3
+#define CALL_SUB_VIEW_UIN 4
+
+#define CALL_SUB_VIEW_TOTAL 4
+
+static unsigned char call_sub_views_to_type_map[] = {CALL_TYPE_U_OFF, CALL_TYPE_I_OFF, CALL_TYPE_U_HI, CALL_TYPE_I_HI, CALL_TYPE_U_IN};
 
 void uic_callSubMenuDown() {
-	g_sub_view_id = increment8(g_sub_view_id, 3);
+	g_sub_view_id = increment8(g_sub_view_id, CALL_SUB_VIEW_TOTAL);
 }
 
 void uic_callSubMenuStart() {
@@ -767,7 +781,7 @@ void blinkDigit(unsigned char pos, unsigned char row) {
 unsigned char main_menu_text_strings[] = {GR_STR_PON, GR_STR_INFO, GR_STR_CALL, GR_STR_REST};
 unsigned char pon_view_text_strings[] = {GR_STR_OFF, GR_STR_LAST, GR_STR_ON};
 unsigned char info_menu_text_strings[] = {GR_STR_U_IN, GR_STR_T_REG, GR_STR_LST_E};
-unsigned char call_menu_text_strings[] = {GR_STR_U_OFF, GR_STR_I_OFF, GR_STR_U_HI, GR_STR_I_HI};
+unsigned char call_menu_text_strings[] = {GR_STR_U_OFF, GR_STR_I_OFF, GR_STR_U_HI, GR_STR_I_HI, GR_STR_U_IN};
 unsigned char call_view_text_strings_top[] = {GR_STR_CALL, GR_STR_BLANK, GR_STR_COR, GR_STR_CALL, GR_STR_DONE, GR_STR_FAIL};
 unsigned char call_view_text_strings_btm[] = {GR_STR_3DOT, GR_STR_OUT, GR_STR_BLANK, GR_STR_RUN, GR_STR_BLANK, GR_STR_E};
 
@@ -873,10 +887,13 @@ void renderView() {
 			case CALL_TYPE_I_OFF:
 				grSetDot(g_seg_buffer, 5);
 				break;
+			case CALL_TYPE_U_IN:
+				grSetDot(g_seg_buffer, 5);
+				break;
 			}
 			blinkDigit(g_cursor_pos, 0);
-		}
-		if (g_call_step == CALL_STEP_CONFIRM) {
+
+		} else if (g_call_step == CALL_STEP_CONFIRM) {
 			if (g_call_type == CALL_TYPE_I_HI || g_call_type == CALL_TYPE_I_OFF) {
 				grFormatStr(g_seg_buffer, GR_STR_SHORT, 0);
 			}
