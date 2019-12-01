@@ -1,3 +1,7 @@
+#define MEM_MARKER_H_ADR 0x00FF
+#define MEM_MARKER_L_ADR 0x00FE
+#define MEM_MARKER_H 0XAA
+#define MEM_MARKER_L 0x30
 
 //Float system critical values
 #define OP_VAL_UADC_CORR 0
@@ -24,8 +28,10 @@
 #define OP_VAL_OUT_STATE 17
 
 // Memory error flags
-#define BLOCK_1_ERR_BIT 0x01
-#define BLOCK_2_ERR_BIT 0x02
+#define MEM_BLOCK_1_CRC 0x01
+#define MEM_BLOCK_2_CRC 0x02
+#define MEM_ERROR 0x10
+#define MEM_FORMATTED 0x80
 
 float sm_GetFloatOpVal(unsigned char value_id);
 unsigned short sm_GetShortOpVal(unsigned char value_id);
@@ -35,3 +41,4 @@ unsigned char sm_LoadOpValues();
 void sm_ForceDumpAllOpValues();
 void sm_DumpOpValues();
 void sm_PeriodicWrite();
+unsigned char sm_FormatMem();

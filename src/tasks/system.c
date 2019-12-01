@@ -59,6 +59,7 @@ void sys_updateUIOutState(unsigned char out_state);
 void sys_updateUISettings();
 void sys_sendUIErrorState(unsigned char error_code, unsigned char error_action);
 void sys_sendUIOTPState(unsigned char state);
+void sys_sendUIInfo(unsigned char message_id);
 
 
 /* Main system task */
@@ -81,12 +82,19 @@ void TaskSystemControl(void *arg) {
 	iadcInit();
 	// Load settings and correction coefficients from EEPROM. If 'CODE' is  non zero, send error to UI
 	temp_uchar = sm_LoadOpValues();
-	if (temp_uchar != 0) { //If non zero code (memory error)
-		if (MASK_BIT(temp_uchar, BLOCK_1_ERR_BIT)) {
+	if (MASK_BIT(temp_uchar, MEM_FORMATTED)) {
+		sys_sendUIInfo(POPUP_SETT_RESET);
+
+	} else if (temp_uchar != 0) { //If non zero code (memory error)
+
+		if (MASK_BIT(temp_uchar, MEM_BLOCK_1_CRC)) {
 			last_error = ERROR_MEM_BLOCK_1;
 		}
-		else if (MASK_BIT(temp_uchar, BLOCK_2_ERR_BIT)) {
+		else if (MASK_BIT(temp_uchar, MEM_BLOCK_2_CRC)) {
 			last_error = ERROR_MEM_BLOCK_2;
+		}
+		else if (MASK_BIT(temp_uchar, MEM_ERROR)) {
+			last_error = ERROR_MEM_FAIL;
 		}
 		else {
 			last_error = ERROR_UNKNOWN; // To avoid undefined system state
@@ -270,6 +278,19 @@ void sys_checkEventQueue() {
 			sm_SetShortOpVal(OP_VAL_SETTINGS_1, sys_message.data[0]);
 			sm_DumpOpValues();
 			break;
+		case SYS_MSG_RESET:
+			// Turn out off before reset
+			sys_setOutState(OUT_OFF);
+			sys_updateUIOutState(OUT_OFF);
+			// Reset settings
+			if (sm_FormatMem()) {
+				sys_sendUIInfo(POPUP_SETT_RESET);
+			} else {
+				sys_sendUIInfo(POPUP_RESET_FAIL);
+			}
+			sys_updateUISettings();
+			sys_updateUISetValues();
+			break;
 		}
 	}
 }
@@ -327,6 +348,13 @@ void sys_sendUIOTPState(unsigned char state) {
 	struct UIEventMessage ui_message;
 	ui_message.type = UI_MSG_OTP_STATE;
 	ui_message.data[0] = state;
+	xQueueSend(xQueueUIEvent, (void *) &ui_message, 0);
+}
+
+void sys_sendUIInfo(unsigned char message_id) {
+	struct UIEventMessage ui_message;
+	ui_message.type = UI_MSG_INFO;
+	ui_message.data[0] = message_id;
 	xQueueSend(xQueueUIEvent, (void *) &ui_message, 0);
 }
 

@@ -21,10 +21,7 @@
 #define VIEW_CALL 8
 #define VIEW_PON_SATE 9
 #define VIEW_POPUP 10
-
-#define POPUP_ERROR 1
-#define POPUP_LO_UIN 2
-#define POPUP_HI_T 3
+#define VIEW_RESET_CONFIRM 11
 
 #define CALL_STEP_WAIT_START 0
 #define CALL_STEP_CONFIRM 1
@@ -32,8 +29,6 @@
 #define CALL_STEP_RUN 3
 #define CALL_STEP_DONE 4
 #define CALL_STEP_FAIL 5
-
-#define MENU_TOTAL_ITEMS 3
 
 #define BTN_STATE_NONE 0
 #define BTN_STATE_WAIT_LP 1
@@ -243,6 +238,10 @@ void checkEventQueue() {
 			}
 			showPopUp(POPUP_ERROR);
 			break;
+
+		case UI_MSG_INFO:
+			showPopUp((unsigned short)message.data[0]);
+			break;
 		}
 	}
 }
@@ -279,6 +278,12 @@ void uic_sendNewSettingsValues() {
 	xQueueSend(xQueueSysEvent, (void *) &message, 0);
 }
 
+void uic_sendResetCommand() {
+	struct SystemEventMessage message;
+	message.type = SYS_MSG_RESET;
+	xQueueSend(xQueueSysEvent, (void *) &message, 0);
+}
+
 void uic_handleCallCommand(struct UIEventMessage message) {
 	switch (message.data[0]) {
 	case CALL_STATE_READY:
@@ -299,11 +304,13 @@ void uic_handleCallCommand(struct UIEventMessage message) {
 
 /* Stores current UI position and displays defined message. */
 void showPopUp(unsigned char code) {
-	// Store current values for return
-	g_popup_fallback_view = g_view_id;
-	// Set message code and view
+	if (g_view_id != VIEW_POPUP) {
+		// Store current values for return
+		g_popup_fallback_view = g_view_id;
+		g_view_id = VIEW_POPUP;
+	}
+	// Set message code
 	g_popup_code = code;
-	g_view_id = VIEW_POPUP;
 }
 
 /* Generic UI control methods */
@@ -440,8 +447,11 @@ static void (*current_set_view_methods_list[])() = {uic_mainViewGoToUSet, uic_ge
 #define MENU_SUB_VIEW_PON 0
 #define MENU_SUB_VIEW_INFO 1
 #define MENU_SUB_VIEW_CALL 2
+#define MENU_SUB_VIEW_RESET 3
 
-unsigned char main_menu_sub_views[] = {VIEW_PON_SATE, VIEW_INFO_SM, VIEW_CALL_SM};
+#define MENU_TOTAL_ITEMS 4
+
+unsigned char main_menu_sub_views[] = {VIEW_PON_SATE, VIEW_INFO_SM, VIEW_CALL_SM, VIEW_RESET_CONFIRM};
 
 void uic_mainMenuDown() {
 	g_sub_view_id = increment8(g_sub_view_id, MENU_TOTAL_ITEMS - 1);
@@ -449,7 +459,7 @@ void uic_mainMenuDown() {
 
 void uic_mainMenuGoToSubMenu() {
 	g_view_id = main_menu_sub_views[g_sub_view_id];
-	if (g_sub_view_id == 0) {
+	if (g_sub_view_id == MENU_SUB_VIEW_PON) {
 		g_sub_view_id = g_settings_1 & SETT_MASK_PON_STATE;
 	}
 	else {
@@ -483,6 +493,7 @@ static void (*pon_view_methods_list[])() = {uic_genericHandlerNop, uic_genericHa
 #define INFO_SUB_VIEW_UIN 0
 #define INFO_SUB_VIEW_TREG 1
 #define INFO_SUB_VIEW_LAST_E 2
+
 #define INFO_SUB_VIEW_TOTAL 2
 
 unsigned char info_menu_sub_views[] = {VIEW_U_IN, VIEW_T_REG, VIEW_POPUP};
@@ -562,6 +573,32 @@ void uic_popUpViewGoBack() {
 
 static void (*popup_view_methods_list[])() = {uic_genericHandlerNop, uic_genericHandlerNop, uic_popUpViewGoBack,
 	uic_genericHandlerNop, uic_genericHandlerNop, uic_genericHandlerNop, uic_genericHandlerNop, uic_genericHandlerNop};
+
+/* Reset confirm */
+void uic_resetConfirmViewGoBack() {
+	g_view_id = VIEW_MENU;
+	g_sub_view_id = MENU_SUB_VIEW_RESET;
+}
+
+void uic_resetConfirmViewToggle() {
+	g_sub_view_id = g_sub_view_id ^ 0x01;
+}
+
+void uic_resetConfirmViewConfirm() {
+	if (g_sub_view_id) {
+		uic_sendResetCommand();
+		g_popup_code = POPUP_RUN;
+		g_popup_fallback_view = VIEW_MENU;
+		g_view_id = VIEW_POPUP;
+		g_sub_view_id = MENU_SUB_VIEW_RESET;
+	}
+	else {
+		uic_resetConfirmViewGoBack();
+	}
+}
+
+static void (*reset_confirm_view_methods_list[])() = {uic_genericHandlerNop, uic_genericHandlerNop, uic_resetConfirmViewGoBack,
+		uic_resetConfirmViewToggle, uic_resetConfirmViewConfirm, uic_resetConfirmViewToggle, uic_genericHandlerNop, uic_genericHandlerNop};
 
 /*
 #define CALL_STEP_CONFIRM 1
@@ -704,6 +741,11 @@ void processButtonPress(unsigned char btn_n) {
 		case VIEW_POPUP:
 			(*popup_view_methods_list[btn_n])();
 			break;
+
+		// Reset confirm view
+		case VIEW_RESET_CONFIRM:
+			(*reset_confirm_view_methods_list[btn_n])();
+			break;
 	}
 
 }
@@ -722,7 +764,7 @@ void blinkDigit(unsigned char pos, unsigned char row) {
 	}
 }
 
-unsigned char main_menu_text_strings[] = {GR_STR_PON, GR_STR_INFO, GR_STR_CALL};
+unsigned char main_menu_text_strings[] = {GR_STR_PON, GR_STR_INFO, GR_STR_CALL, GR_STR_REST};
 unsigned char pon_view_text_strings[] = {GR_STR_OFF, GR_STR_LAST, GR_STR_ON};
 unsigned char info_menu_text_strings[] = {GR_STR_U_IN, GR_STR_T_REG, GR_STR_LST_E};
 unsigned char call_menu_text_strings[] = {GR_STR_U_OFF, GR_STR_I_OFF, GR_STR_U_HI, GR_STR_I_HI};
@@ -735,7 +777,6 @@ unsigned char call_view_text_strings_btm[] = {GR_STR_3DOT, GR_STR_OUT, GR_STR_BL
 #define CALL_STEP_RUN 3
 #define CALL_STEP_DONE 4
 #define CALL_STEP_FAIL 5
-
 */
 
 void renderView() {
@@ -867,6 +908,32 @@ void renderView() {
 			grFormatStr(g_seg_buffer, GR_STR_HI, 0);
 			grFormatStr(g_seg_buffer, GR_STR_T_REG, 4);
 			break;
+		case POPUP_RUN:
+			grFormatStr(g_seg_buffer, GR_STR_RUN, 0);
+			grFormatStr(g_seg_buffer, GR_STR_BLANK, 4);
+			break;
+		case POPUP_SETT_RESET:
+			grFormatStr(g_seg_buffer, GR_STR_SETT, 0);
+			grFormatStr(g_seg_buffer, GR_STR_REST, 4);
+			break;
+		case POPUP_RESET_FAIL:
+			grFormatStr(g_seg_buffer, GR_STR_REST, 0);
+			grFormatStr(g_seg_buffer, GR_STR_FAIL, 4);
+			break;
+		}
+		break;
+
+	case VIEW_RESET_CONFIRM:
+		grFormatStr(g_seg_buffer, GR_STR_REST, 0);
+		if (g_blink_bit) {
+			if (g_sub_view_id) {
+				grFormatStr(g_seg_buffer, GR_STR_YES, 4);
+			} else {
+				grFormatStr(g_seg_buffer, GR_STR_NO, 4);
+			}
+		}
+		else {
+			grFormatStr(g_seg_buffer, GR_STR_BLANK, 4);
 		}
 		break;
 	}
