@@ -36,11 +36,13 @@ struct SystemEventMessage
 #define CALL_TYPE_I_OFF 1
 #define CALL_TYPE_U_HI 2
 #define CALL_TYPE_I_HI 3
+#define CALL_TYPE_U_IN 4
 
 #define CALL_REF_U_HI 1400 // 14 V
 #define CALL_REF_I_HI 2200 // 2.2 A
 #define CALL_REF_U_OFF 1000 // 1000 / 100 = 10 mV
 #define CALL_REF_I_OFF 500 // 500 / 100 = 5 mA
+#define CALL_REF_U_IN 2400 // 24 V
 #define CALL_REF_OFF_MULT 100
 
 // Error codes

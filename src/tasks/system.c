@@ -200,7 +200,7 @@ void TaskSystemControl(void *arg) {
 			// Since UI is button event driven, this event is used sync timed events, for example dot blinking
 			uicNotifyUITask(UI_EVENT_PERIODIC);
 			// Measure input voltage and regulator temperature
-			input_voltage = (unsigned short)(iadcMeasureInputVoltage() / INPUT_VOLTAGE_CORR_COEFF);
+			input_voltage = (unsigned short)(iadcMeasureInputVoltage() / sm_GetFloatOpVal(OP_VAL_UIN_CORR));
 			reg_temperature = iadcMeasureRegTemp();
 			// Check ADC output for sensor fail
 			if (iadc_validateResult(reg_temperature)) {
@@ -236,6 +236,8 @@ void TaskSystemControl(void *arg) {
 
 		//If conditions are met, execute calibration subtask
 		if (CHECK_BIT(g_call_flags, CALL_FLAG_DATA_READY) && CHECK_BIT(g_call_flags, CALL_FLAG_CALL_READY)) {
+			sys_Callibrate();
+		} else if (g_sys_call_type == CALL_TYPE_U_IN && CHECK_BIT(g_call_flags, CALL_FLAG_CALL_READY)) {
 			sys_Callibrate();
 		}
 		// Check queue
@@ -492,6 +494,8 @@ void sys_Callibrate() {
 	unsigned short offset;
 	float var;
 	signed int raw_adc_val, temp;
+	unsigned char i;
+
 	switch (g_sys_call_type) {
 	case CALL_TYPE_U_HI:
 		// Calculate DAC correction coefficient
@@ -580,6 +584,17 @@ void sys_Callibrate() {
 			offset = 0;
 		}
 		sm_SetShortOpVal(OP_VAL_IADC_ZERO, offset);
+		sm_DumpOpValues();
+		break;
+
+	case CALL_TYPE_U_IN:
+		raw_adc_val = 0;
+		for (i=0; i<10; i++) {
+			raw_adc_val += iadcMeasureInputVoltage();
+		}
+		// Collected ADC raw value is nod divider by 10, because correction value is multiplied by 10
+		var = raw_adc_val / (float)g_call_corr_value;
+		sm_SetFloatOpVal(OP_VAL_UIN_CORR, var);
 		sm_DumpOpValues();
 		break;
 	}
