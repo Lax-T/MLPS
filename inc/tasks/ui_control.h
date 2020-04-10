@@ -16,10 +16,10 @@
 
 
 /* Calibration states in system to UI responses (UI_MSG_CALL_STATE) */
-#define CALL_STATE_READY 1
-#define CALL_STATE_STARTED 2
-#define CALL_STATE_DONE 3
-#define CALL_STATE_FAIL 4
+#define CALL_RESPONSE_READY 1
+#define CALL_RESPONSE_STARTED 2
+#define CALL_RESPONSE_DONE 3
+#define CALL_RESPONSE_FAIL 4
 
 /* Info pop-ups */
 #define POPUP_SETT_RESET 100
@@ -31,5 +31,5 @@
 #define POPUP_RUN 4
 
 
-void TaskUIControl(void *arg);
-void uicNotifyUITask (unsigned int event_type);
+void uic_taskUIControl(void *arg);
+void uic_notifyUITask (unsigned int event_type);

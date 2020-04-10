@@ -1,4 +1,10 @@
+#include "stm32f10x.h"
+#include "tasks/ui_control.h"
 #include "tasks/display_control.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "queue.h"
+#include "macros.h"
 
 #define BTN_MASK 0x10
 #define BTN_RELEASE_THRESHOLD 108
@@ -10,6 +16,9 @@
 #define KEY_5_MASK 0x08
 #define KEY_6_MASK 0x40
 #define KEY_7_MASK 0x20
+
+#define CHECK_CV_PIN GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_9)
+#define CHECK_CC_PIN GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_8)
 
 unsigned char g_digit_buffer[] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 unsigned char g_led_status = 0xFF;
@@ -29,7 +38,7 @@ unsigned char decodeKeyN(unsigned char key_state);
 
 
 /* Display communication task */
-void TaskDisplayControl(void *arg) {
+void dc_taskDisplayControl(void *arg) {
 	unsigned char seg_n = 0;
 	unsigned char btn_counter = 0;
 	unsigned char btn_status_temp = 0xFF;
@@ -40,17 +49,19 @@ void TaskDisplayControl(void *arg) {
 		if (seg_n >= 8) {
 			seg_n = 0;
 		}
-
+		// To speedup refresh, CC/CV LEDs are not controlled from UI task, but directly from display control task.
+		// When displaying segment 4, check if CV LED should be ON (in CV regulation mode)
 		if (seg_n == 4) {
-			if ( GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_9) ) { //CV regulation check
+			if (CHECK_CV_PIN) { //CV regulation check
 				g_led_status = g_led_status | 0x04;
 			}
 			else {
 				g_led_status = g_led_status & 0xFB;
 			}
 		}
+		// When displaying segment 6, check if CC LED should be ON (in CC regulation mode)
 		if (seg_n == 6) {
-			if ( GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_8) ) { //CC regulation check
+			if (CHECK_CC_PIN) { //CC regulation check
 				g_led_status = g_led_status | 0x02;
 			}
 			else {
@@ -58,13 +69,13 @@ void TaskDisplayControl(void *arg) {
 			}
 
 		}
-
-
+		// Refresh display and get buttons state in result.
 		btn_current_state = refreshDisplay(seg_n) | BTN_MASK;
-
 		// Key press process logic
+		// If more then 100, button press was registered. Now checking to confirm button release.
 		if (btn_counter >= 100) {
 			if (checkKeyReleased(btn_current_state, btn_status_temp)) {
+				// If button is released, increase and check counter threshold.
 				btn_counter++;
 				if (btn_counter > BTN_RELEASE_THRESHOLD) {
 					notifyKeyRelease();
@@ -72,15 +83,18 @@ void TaskDisplayControl(void *arg) {
 					btn_counter = 0;
 				}
 			}
+			// If not released, reset counter and wait next cycle (button debounce logic)
 			else {
 				btn_counter = 100;
 			}
 		}
 		else {
+			// If no button is pressed or not good contact (debounce logic), reset counter to zero.
 			if (btn_current_state == 0xFF) {
 				btn_counter = 0;
 				btn_status_temp = 0xFF;
 			}
+			// If counter exceeds threshold, register button press
 			else {
 				if (btn_current_state == btn_status_temp) {
 					btn_counter++;
@@ -96,25 +110,27 @@ void TaskDisplayControl(void *arg) {
 				}
 			}
 		}
-
 		// Sleep till next tick
 		vTaskDelay(1);
 	}
 }
 
 
-/* Keys handle function */
+/* Keyboard handle functions */
+/* Send key release event to the UI task. */
 void notifyKeyRelease() {
 	unsigned char zero = 0;
 	xQueueSend(xQueueButtonEvent, &zero, 0);
-	uicNotifyUITask(UI_EVENT_BTN_STATE);
+	uic_notifyUITask(UI_EVENT_BTN_STATE);
 }
 
+/* Send key pressed event to UI task. */
 void notifyKeyPress(unsigned char key) {
 	xQueueSend(xQueueButtonEvent, &key, 0);
-	uicNotifyUITask(UI_EVENT_BTN_STATE);
+	uic_notifyUITask(UI_EVENT_BTN_STATE);
 }
 
+/* Check if specific button is released. */
 unsigned char checkKeyReleased(unsigned char key_state, unsigned char key_n) {
 	if ( (key_state & btn_mask_lookup[key_n-1]) != 0 ) {
 		return 1;
@@ -124,6 +140,7 @@ unsigned char checkKeyReleased(unsigned char key_state, unsigned char key_n) {
 	}
 }
 
+/* Decode key number according to masks. */
 unsigned char decodeKeyN(unsigned char key_state) {
 	unsigned char i;
 	for (i=0; i<7; i++) {
@@ -134,9 +151,8 @@ unsigned char decodeKeyN(unsigned char key_state) {
 	return 0;
 }
 
-
 /* Update display buffer/led status registers */
-void writeDisplayBuffer(unsigned char buffer[], unsigned char leds) {
+void dc_writeDisplayBuffer(unsigned char buffer[], unsigned char leds) {
 	unsigned char i;
 
 	for (i=0; i < 8; i++) {
@@ -146,6 +162,7 @@ void writeDisplayBuffer(unsigned char buffer[], unsigned char leds) {
 }
 
 /***** Display refresh functions *****/
+/* Send byte to driver/shift register, read byte from register with buttons status. */
 unsigned char sendByte(unsigned char tx_byte) {
 	unsigned char rx_byte = 0;
 	unsigned char i;
@@ -169,6 +186,7 @@ unsigned char sendByte(unsigned char tx_byte) {
 	return rx_byte;
 }
 
+/* Send additional bit for one bit latch, for status LEDs */
 void sendLedBit(unsigned char led_state) {
 	if (led_state != 0) {
 		DISP_DOUT_HI;
@@ -180,6 +198,7 @@ void sendLedBit(unsigned char led_state) {
 	DISP_CLK_LOW;
 }
 
+/* Execute complete display refresh cycle with keyboard status read. */
 unsigned char refreshDisplay(unsigned char seg_n) {
 	unsigned char buttons = 0;
 	unsigned char dr_data = 0;
@@ -191,7 +210,6 @@ unsigned char refreshDisplay(unsigned char seg_n) {
 		}
 	}
 	reg_data = segment_lookup[seg_n];
-
 	// Turn off display
 	DISP_OE_HI;
 	// Lath button scan register
@@ -209,7 +227,3 @@ unsigned char refreshDisplay(unsigned char seg_n) {
 	DISP_OE_LOW;
 	return buttons;
 }
-
-
-
-

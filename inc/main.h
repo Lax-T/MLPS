@@ -1,22 +1,3 @@
-#include "stm32f10x.h"
-#include "FreeRTOS.h"
-#include "queue.h"
-#include "tasks/display_control.h"
-#include "tasks/system.h"
-#include "tasks/ui_control.h"
-#include "tasks/adc_readout.h"
-#include "globals.h"
-#include "init.h"
-
-#define DAC_RESOLUTION_10B
-//#define DAC_RESOLUTION_12B
-
-#if defined(DAC_RESOLUTION_10B) && defined (DAC_RESOLUTION_12B)
-#error Invalid DAC resolution definition!
-#endif
-#if !defined(DAC_RESOLUTION_10B) && !defined (DAC_RESOLUTION_12B)
-#error DAC resolution is not defined
-#endif
 /*
  *** PORT A ***
  *

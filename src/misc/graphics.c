@@ -1,6 +1,5 @@
 #include "misc/graphics.h"
 
-
 #define _0_ 0
 #define _1_ 1
 #define _2_ 2
@@ -90,41 +89,44 @@ static unsigned char g_font[] = {
 	0x80, 0x49, 0x48, 0x08, 0x40, 0x63}; // ., Z, =, _, -, grad
 
 /*Translate value to segment number/character*/
-unsigned char grTranslateToSegment(unsigned char value) {
+unsigned char translateCharToSegments(unsigned char value) {
 	return g_font[value];
 }
 
 /* Format 16bit integer to 4 digit value */
-void grFormatInt4(unsigned char buffer[], unsigned short value, unsigned char offset) {
-	buffer[offset] = grTranslateToSegment(value / 1000);
+void gr_FormatInt4(unsigned char buffer[], unsigned short value, unsigned char offset) {
+	buffer[offset] = translateCharToSegments(value / 1000);
 	offset++;
 	value = value % 1000;
-	buffer[offset] = grTranslateToSegment(value / 100);
+	buffer[offset] = translateCharToSegments(value / 100);
 	offset++;
 	value = value % 100;
-	buffer[offset] = grTranslateToSegment(value / 10);
+	buffer[offset] = translateCharToSegments(value / 10);
 	offset++;
-	buffer[offset] = grTranslateToSegment(value % 10);
+	buffer[offset] = translateCharToSegments(value % 10);
 }
 
-void grFormatInt3(unsigned char buffer[], unsigned short value, unsigned char offset) {
+/* Format 16bit integer to 3 digit value */
+void gr_FormatInt3(unsigned char buffer[], unsigned short value, unsigned char offset) {
 	value = value % 1000;
-	buffer[offset] = grTranslateToSegment(value / 100);
+	buffer[offset] = translateCharToSegments(value / 100);
 	offset++;
 	value = value % 100;
-	buffer[offset] = grTranslateToSegment(value / 10);
+	buffer[offset] = translateCharToSegments(value / 10);
 	offset++;
-	buffer[offset] = grTranslateToSegment(value % 10);
+	buffer[offset] = translateCharToSegments(value % 10);
 }
 
-void grFormatInt2(unsigned char buffer[], unsigned short value, unsigned char offset) {
+/* Format 16bit integer to 2 digit value */
+void gr_FormatInt2(unsigned char buffer[], unsigned short value, unsigned char offset) {
 	value = value % 100;
-	buffer[offset] = grTranslateToSegment(value / 10);
+	buffer[offset] = translateCharToSegments(value / 10);
 	offset++;
-	buffer[offset] = grTranslateToSegment(value % 10);
+	buffer[offset] = translateCharToSegments(value % 10);
 }
 
-void grFormatStr(unsigned char buffer[], unsigned char string_id, unsigned char offset) {
+/* Display static text string */
+void gr_FormatStr(unsigned char buffer[], unsigned char string_id, unsigned char offset) {
 	unsigned char i, symbol, str_pointer;
 	unsigned char *str = g_str_list[string_id];
 	str_pointer = 0;
@@ -144,8 +146,8 @@ void grFormatStr(unsigned char buffer[], unsigned char string_id, unsigned char 
 	}
 }
 
-// Set dot for given position
-void grSetDot(unsigned char buffer[], unsigned char position) {
+/* Set (show on the display) dot in graphic buffer for given position (digit) */
+void gr_SetDot(unsigned char buffer[], unsigned char position) {
 	if (position < 8) {
 		buffer[position] = buffer[position] | 0x80;
 	}

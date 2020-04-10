@@ -1,6 +1,6 @@
-#include "stm32f10x.h"
-#define CoreFreqMHz 16
-#define USDELAY_CALC(delay) (delay*CoreFreqMHz-28)
+#define CORE_FREQUENCY_MHz 16
+
+#define USDELAY_CALC(delay) (delay*CORE_FREQUENCY_MHz-28)
 
 void uSDelay(unsigned int delay);
 

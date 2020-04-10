@@ -1,4 +1,5 @@
 #include "init.h"
+#include "stm32f10x.h"
 
 GPIO_InitTypeDef GPIOInit;
 TIM_TimeBaseInitTypeDef  TIMInit;
@@ -12,15 +13,7 @@ void init() {
 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO, ENABLE);
 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_ADC1, ENABLE);
-	//RCC_APB2PeriphClockCmd(RCC_APB2Periph_TIM8, ENABLE);
-	//RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART1, ENABLE);
-	//RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2 , ENABLE);
-	//RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM3 , ENABLE);
 	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM6 , ENABLE);
-	//RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM7 , ENABLE);
-	//RCC_APB1PeriphClockCmd(RCC_APB1Periph_DAC, ENABLE);
-	//RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART2, ENABLE);
-	//RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART3, ENABLE);
 
 	// Set system clock to HSI > PLL x4 (16 MHz)
 	RCC_SYSCLKConfig(RCC_SYSCLKSource_HSI);

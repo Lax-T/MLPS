@@ -14,9 +14,10 @@ float g_float_op_values[FLOAT_OP_VALUES_N];
 unsigned short g_short_op_values[SHORT_OP_VALUES_N];
 unsigned char g_write_queue[] = {255, 255, 255, 255, 255, 255, 255, 255};
 unsigned char g_write_timeout = 0;
-
-static float g_float_defaults[] = {137.9705, 93.6228, 1.9042, 2.7343, 8.55};
+// Default operating values
+static float g_float_defaults[] = {137.48, 98.89, 2.13, 1.53, 8.55};
 static unsigned short g_short_defaults[] = {0, 0, 0, 0, 0, 100, 100, 0};
+// Table for fast CRC calculation
 static unsigned char g_crc8_table[] = {
     0, 94,188,226, 97, 63,221,131,194,156,126, 32,163,253, 31, 65,
   157,195, 33,127,252,162, 64, 30, 95,  1,227,189, 62, 96,130,220,
@@ -36,43 +37,47 @@ static unsigned char g_crc8_table[] = {
   116, 42,200,150, 21, 75,169,247,182,232, 10, 84,215,137,107, 53
 };
 
-void sm_ScheduleValueWrite(unsigned char value_id);
-unsigned char sm_RecallValue(unsigned char value_id);
-void sm_StoreValue(unsigned char value_id);
-unsigned char sm_CheckMemMarkers();
-void sm_WriteMemMarkers();
-unsigned char sm_RecallAllValues();
-unsigned char sm_FormatMem();
+void sm_scheduleValueWrite(unsigned char value_id);
+unsigned char sm_recallValue(unsigned char value_id);
+void sm_storeValue(unsigned char value_id);
+unsigned char sm_checkMemMarkers();
+void sm_writeMemMarkers();
+unsigned char sm_recallAllValues();
+unsigned char sm_formatMem();
 
 /* Main methods */
-float sm_GetFloatOpVal(unsigned char value_id) {
+/* Get float value */
+float sm_getFloatOpVal(unsigned char value_id) {
 	return g_float_op_values[value_id];
 }
 
-unsigned short sm_GetShortOpVal(unsigned char value_id) {
+/* Get short (16 bit) value */
+unsigned short sm_getShortOpVal(unsigned char value_id) {
 	return g_short_op_values[value_id-SHORT_VALUES_OFFSET];
 }
 
-void sm_SetFloatOpVal(unsigned char value_id, float op_value) {
+/* Set new float value */
+void sm_setFloatOpVal(unsigned char value_id, float op_value) {
 	g_float_op_values[value_id] = op_value;
-	sm_ScheduleValueWrite(value_id);
+	sm_scheduleValueWrite(value_id);
 }
 
-void sm_SetShortOpVal(unsigned char value_id, unsigned short op_value) {
+/* Set new short (16 bit) value */
+void sm_setShortOpVal(unsigned char value_id, unsigned short op_value) {
 	g_short_op_values[value_id-SHORT_VALUES_OFFSET] = op_value;
-	sm_ScheduleValueWrite(value_id);
+	sm_scheduleValueWrite(value_id);
 }
 
 /* Loads all operating values (settings) from EEPROM on startup. */
-unsigned char sm_LoadOpValues() {
+unsigned char sm_loadOpValues() {
 	// Check memory markers
-	if (sm_CheckMemMarkers()) { // If markers are OK, proceed with normal load
-		return sm_RecallAllValues();
+	if (sm_checkMemMarkers()) { // If markers are OK, proceed with normal load
+		return sm_recallAllValues();
 	} else {
 		// If markers are wrong, format memory and try to read all values again to check memory
 		// Additional reread is perform to validate all memory cells. It's done, because it's unclear if
 		// markers were wrong because new EEPROM/software update (markers changed) or memory is damaged/non functional.
-		if (sm_FormatMem() && sm_RecallAllValues() == 0) {
+		if (sm_formatMem() && sm_recallAllValues() == 0) {
 			// If sm_RecallAllValues exit code zero (no errors on load), return normal format flag
 			return MEM_FORMATTED;
 		} else {
@@ -82,34 +87,37 @@ unsigned char sm_LoadOpValues() {
 	}
 }
 
-unsigned char sm_RecallAllValues() {
+/* Read all memory blocks from EEPROM. If CRC for block fails,
+ * load default value to remain device operational and set appropriate flag. */
+unsigned char sm_recallAllValues() {
 	unsigned char i;
-	unsigned char status_flags = 0;
+	unsigned char flags = 0;
 	// Load float operation values
 	for (i = 0; i < FLOAT_OP_VALUES_N; i++) {
-		if (sm_RecallValue(i) != 1) {
+		if (sm_recallValue(i) != 1) {
 			 g_float_op_values[i] = g_float_defaults[i];
-			 status_flags |= MEM_BLOCK_1_CRC;
+			 flags |= MEM_BLOCK_1_CRC;
 		}
 	}
-
 	// Load short operation values
 	for (i = 0; i < SHORT_OP_VALUES_N; i++) {
-		if (sm_RecallValue(i + SHORT_VALUES_OFFSET) != 1) {
+		if (sm_recallValue(i + SHORT_VALUES_OFFSET) != 1) {
 			g_short_op_values[i] = g_short_defaults[i];
 			if ((i + SHORT_VALUES_OFFSET) < NON_CRITICAL_VAL_THRESHOLD) { // System setting affected
-				status_flags |= MEM_BLOCK_1_CRC;
+				flags |= MEM_BLOCK_1_CRC;
 			}
 			else { // Non system critical setting affected
-				status_flags |= MEM_BLOCK_2_CRC;
-				sm_ScheduleValueWrite(i + SHORT_VALUES_OFFSET);
+				flags |= MEM_BLOCK_2_CRC;
+				sm_scheduleValueWrite(i + SHORT_VALUES_OFFSET);
 			}
 		}
 	}
-	return status_flags;
+	return flags;
 }
 
-unsigned char sm_FormatMem() {
+/* Load all defaults and write to memory. Also write and check memory markers.
+ * Return result of markers check, 1 - check OK, 0 - check fail.  */
+unsigned char sm_formatMem() {
 	unsigned char i;
 	// Load float defaults
 	for (i = 0; i < FLOAT_OP_VALUES_N; i++) {
@@ -120,38 +128,40 @@ unsigned char sm_FormatMem() {
 		g_short_op_values[i] = g_short_defaults[i];
 	}
 	// Dump all values to memory
-	sm_ForceDumpAllOpValues();
+	sm_forceDumpAllOpValues();
 	// Write markers
-	sm_WriteMemMarkers();
+	sm_writeMemMarkers();
 	// Validate
-	if (sm_CheckMemMarkers()) {
+	if (sm_checkMemMarkers()) {
 		return 1;
 	}
 	return 0;
 }
 
-void sm_ForceDumpAllOpValues() {
+/* Immediately write all values to EEPROM (staged and not staged). */
+void sm_forceDumpAllOpValues() {
 	unsigned char i;
 	// Store float operation values
 	for (i = 0; i < FLOAT_OP_VALUES_N; i++) {
-		sm_StoreValue(i);
+		sm_storeValue(i);
 		mSDelay(10);
 	}
 	// Store short operation values
 	for (i = 0; i < SHORT_OP_VALUES_N; i++) {
-		sm_StoreValue(i + SHORT_VALUES_OFFSET);
+		sm_storeValue(i + SHORT_VALUES_OFFSET);
 		mSDelay(10);
 	}
 }
 
-void sm_DumpOpValues() {
-	/* Immediately store all staged values to EEPROM w/o exit. */
+/* Immediately write all staged values to EEPROM. */
+void sm_dumpOpValues() {
 	unsigned char i, value_id;
 
 	for (i=0; i < WRITE_QUEUE_MAX_LEN; i++) {
+		// Check write queue for all non 255 (scheduled) values.
 		value_id = g_write_queue[i];
 		if (value_id != 255) {
-			sm_StoreValue(value_id);
+			sm_storeValue(value_id);
 			mSDelay(10);
 			g_write_queue[i] = 255;
 		}
@@ -161,27 +171,33 @@ void sm_DumpOpValues() {
 	}
 }
 
-void sm_PeriodicWrite() {
-	/*Wait set number of function calls and write staged values to EEPROM*/
+/* Callback function, used to measure time, for delayed value write. */
+void sm_periodicWrite() {
 	if (g_write_timeout > 0) {
 		g_write_timeout--;
 		if (g_write_timeout == 0) {
-			sm_DumpOpValues();
+			sm_dumpOpValues();
 		}
 	}
 }
 
 /* Support functions */
-void sm_ScheduleValueWrite(unsigned char value_id) {
+/* Add value to write queue. After each value add, write timeout is reset.
+ * It's used to delay value write, to EEPROM.
+ * Add value to queue and write after some time (3s or so), after value had been settled. */
+void sm_scheduleValueWrite(unsigned char value_id) {
 	unsigned char i, temp;
 
 	for (i=0; i < WRITE_QUEUE_MAX_LEN; i++) {
 		temp = g_write_queue[i];
+		// Check queue. If 255, it means that this is the end of the queue.
+		// Current value does non found in the queue and may be added.
 		if (temp == 255) {
 			g_write_queue[i] = value_id;
 			g_write_timeout = WRITE_TIMEOUT;
 			break;
 		}
+		// Value already in the queue, skip add.
 		if (temp == value_id) {
 			g_write_timeout = WRITE_TIMEOUT;
 			break;
@@ -189,7 +205,9 @@ void sm_ScheduleValueWrite(unsigned char value_id) {
 	}
 }
 
-void sm_DecomposeFloat(float value, unsigned char decomposed_value[]) {
+/* Decompose float value into 4 bytes.
+ *  May not be the best way to do this. Review in future. */
+void sm_decomposeFloat(float value, unsigned char decomposed_value[]) {
 	unsigned short integer, fraction;
 	integer = (unsigned short)value;
 	fraction = (unsigned short)((value - integer)*10000);
@@ -199,12 +217,15 @@ void sm_DecomposeFloat(float value, unsigned char decomposed_value[]) {
 	decomposed_value[3] = fraction & 0xFF;
 }
 
-void sm_DecomposeShort(unsigned short value, unsigned char decomposed_value[]) {
+/* Decompose short value into 2 bytes. */
+void sm_decomposeShort(unsigned short value, unsigned char decomposed_value[]) {
 	decomposed_value[0] = (value >> 8) & 0xFF;
 	decomposed_value[1] = value & 0xFF;
 }
 
-float sm_ComposeFloat(unsigned char value_components[]) {
+/* Compose float from 4 bytes.
+ * Maybe redo in future. */
+float sm_composeFloat(unsigned char value_components[]) {
 	unsigned short temp = 0;
 	float value = 0;
 	temp = ((temp | value_components[0]) << 8) | value_components[1];
@@ -215,28 +236,31 @@ float sm_ComposeFloat(unsigned char value_components[]) {
 	return value;
 }
 
-unsigned short sm_ComposeShort(unsigned char value_components[]) {
+/* Compose short from 2 bytes. */
+unsigned short sm_composeShort(unsigned char value_components[]) {
 	unsigned short value = 0;
 	value = ((value | value_components[0]) << 8) | value_components[1];
 	return value;
 }
 
-unsigned char sm_CheckMemMarkers() {
-	if (mem_ReadRandomByte(MEM_MARKER_H_ADR) == MEM_MARKER_H || mem_ReadRandomByte(MEM_MARKER_L_ADR) == MEM_MARKER_L) {
+/* Check clean memory markers. */
+unsigned char sm_checkMemMarkers() {
+	if (mem_readRandomByte(MEM_MARKER_H_ADR) == MEM_MARKER_H && mem_readRandomByte(MEM_MARKER_L_ADR) == MEM_MARKER_L) {
 		return 1;
 	}
 	return 0;
 }
 
-void sm_WriteMemMarkers() {
-	mem_WriteRandomByte(MEM_MARKER_H_ADR, MEM_MARKER_H);
+/* Write memory markers. */
+void sm_writeMemMarkers() {
+	mem_writeRandomByte(MEM_MARKER_H_ADR, MEM_MARKER_H);
 	mSDelay(10);
-	mem_WriteRandomByte(MEM_MARKER_L_ADR, MEM_MARKER_L);
+	mem_writeRandomByte(MEM_MARKER_L_ADR, MEM_MARKER_L);
 	mSDelay(10);
 }
 
-//Calculate memory offset address
-unsigned short sm_CalcMemAddress(unsigned char value_id) {
+/* Calculate memory block address */
+unsigned short sm_calcMemAddress(unsigned char value_id) {
 	if (value_id == 0) {
 		return 0;
 	}
@@ -248,8 +272,8 @@ unsigned short sm_CalcMemAddress(unsigned char value_id) {
 	}
 }
 
-
-unsigned char sm_RecallValue(unsigned char value_id) {
+/* Read block (value) from memory and check CRC. */
+unsigned char sm_recallValue(unsigned char value_id) {
 	unsigned char data_buffer[5], buffer_len, i;
 	unsigned char crc = 0;
 
@@ -259,7 +283,7 @@ unsigned char sm_RecallValue(unsigned char value_id) {
 	else {
 		buffer_len = 3;
 	}
-	mem_ReadBlock(sm_CalcMemAddress(value_id), data_buffer, buffer_len);
+	mem_readBlock(sm_calcMemAddress(value_id), data_buffer, buffer_len);
 	// CRC calculation
 	for (i=0; i < buffer_len - 1; i++) {
 		crc = g_crc8_table[crc ^ data_buffer[i]];
@@ -267,10 +291,10 @@ unsigned char sm_RecallValue(unsigned char value_id) {
 	// Check if CRC is valid
 	if (crc == data_buffer[buffer_len - 1]) {
 		if (value_id < SHORT_VALUES_OFFSET) {
-			g_float_op_values[value_id] = sm_ComposeFloat(data_buffer);
+			g_float_op_values[value_id] = sm_composeFloat(data_buffer);
 		}
 		else {
-			g_short_op_values[value_id - SHORT_VALUES_OFFSET] = sm_ComposeShort(data_buffer);
+			g_short_op_values[value_id - SHORT_VALUES_OFFSET] = sm_composeShort(data_buffer);
 		}
 		return 1;
 	}
@@ -279,26 +303,26 @@ unsigned char sm_RecallValue(unsigned char value_id) {
 	}
 }
 
-void sm_StoreValue(unsigned char value_id) {
+/* Write block (value) with calculated CRC. */
+void sm_storeValue(unsigned char value_id) {
 	unsigned char data_buffer[5], buffer_len, i;
 	unsigned char crc = 0;
 
 	if (value_id < SHORT_VALUES_OFFSET) {
 		buffer_len = 5;
-		sm_DecomposeFloat(g_float_op_values[value_id], data_buffer);
+		sm_decomposeFloat(g_float_op_values[value_id], data_buffer);
 	}
 	else {
 		buffer_len = 3;
-		sm_DecomposeShort(g_short_op_values[value_id - SHORT_VALUES_OFFSET], data_buffer);
+		sm_decomposeShort(g_short_op_values[value_id - SHORT_VALUES_OFFSET], data_buffer);
 	}
-
 	// CRC calculation
 	for (i=0; i < buffer_len - 1; i++) {
 		crc = g_crc8_table[crc ^ data_buffer[i]];
 	}
 	data_buffer[buffer_len - 1] = crc;
 	// Write block
-	mem_WriteBlock(sm_CalcMemAddress(value_id), data_buffer, buffer_len);
+	mem_writeBlock(sm_calcMemAddress(value_id), data_buffer, buffer_len);
 }
 
 
