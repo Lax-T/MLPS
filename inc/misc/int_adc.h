@@ -1,7 +1,4 @@
-#include "stm32f10x.h"
-#include "delays.h"
-
-void iadcInit();
-unsigned short iadcMeasureInputVoltage();
-unsigned short iadcMeasureRegTemp();
+void iadc_internalADCInit();
+unsigned short iadc_measureInputVoltage();
+unsigned short iadc_measureRegTemp();
 unsigned char iadc_validateResult(unsigned short value);

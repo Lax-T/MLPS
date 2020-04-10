@@ -1,4 +1,3 @@
-
 #define GR_STR_MENU 0
 #define GR_STR_CALL 1
 #define GR_STR_INFO 2
@@ -36,10 +35,8 @@
 #define GR_STR_REST 34
 #define GR_STR_YES 35
 
-unsigned char grTranslateToSegment(unsigned char value);
-
-void grFormatInt4(unsigned char buffer[], unsigned short value, unsigned char offset);
-void grFormatInt3(unsigned char buffer[], unsigned short value, unsigned char offset);
-void grFormatInt2(unsigned char buffer[], unsigned short value, unsigned char offset);
-void grFormatStr(unsigned char buffer[], unsigned char string_id, unsigned char offset);
-void grSetDot(unsigned char buffer[], unsigned char position);
+void gr_FormatInt4(unsigned char buffer[], unsigned short value, unsigned char offset);
+void gr_FormatInt3(unsigned char buffer[], unsigned short value, unsigned char offset);
+void gr_FormatInt2(unsigned char buffer[], unsigned short value, unsigned char offset);
+void gr_FormatStr(unsigned char buffer[], unsigned char string_id, unsigned char offset);
+void gr_SetDot(unsigned char buffer[], unsigned char position);

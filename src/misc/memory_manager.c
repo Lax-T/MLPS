@@ -4,8 +4,8 @@
 
 #define EEPROM_ADDRESS 0xA0
 
-
-void mem_WriteRandomByte(unsigned short address, unsigned char data) {
+/* Write random EEPROM byte */
+void mem_writeRandomByte(unsigned short address, unsigned char data) {
 	unsigned char adr_h, adr_l;
 	adr_l = address & 0xFF;
 	adr_h = (address >> 7) & 0x0E;
@@ -20,7 +20,8 @@ void mem_WriteRandomByte(unsigned short address, unsigned char data) {
 	i2c_Stop();
 }
 
-void mem_WriteBlock(unsigned short address, unsigned char data[], unsigned char block_size) {
+/* Write EEPROM block, up to 256 bytes within same block */
+void mem_writeBlock(unsigned short address, unsigned char data[], unsigned char block_size) {
 	unsigned char adr_h, adr_l, i;
 	adr_l = address & 0xFF;
 	adr_h = (address >> 7) & 0x0E;
@@ -39,7 +40,8 @@ void mem_WriteBlock(unsigned short address, unsigned char data[], unsigned char 
 	i2c_Stop();
 }
 
-unsigned char mem_ReadRandomByte(unsigned short address) {
+/* Read random EEPROM byte */
+unsigned char mem_readRandomByte(unsigned short address) {
 	unsigned char adr_h, adr_l, data;
 	adr_l = address & 0xFF;
 	adr_h = (address >> 7) & 0x0E;
@@ -59,7 +61,8 @@ unsigned char mem_ReadRandomByte(unsigned short address) {
 	return data;
 }
 
-void mem_ReadBlock(unsigned short address, unsigned char data[], unsigned char block_size) {
+/* Read EEPROM block, up to 256 bytes within same block */
+void mem_readBlock(unsigned short address, unsigned char data[], unsigned char block_size) {
 	unsigned char adr_h, adr_l, i;
 	adr_l = address & 0xFF;
 	adr_h = (address >> 7) & 0x0E;
@@ -83,5 +86,4 @@ void mem_ReadBlock(unsigned short address, unsigned char data[], unsigned char b
 	i2c_MNAck();
 	i2c_Stop();
 }
-
 

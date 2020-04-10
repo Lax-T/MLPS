@@ -43,7 +43,7 @@
 #define UI_FLAG_LO_UIN 0x10
 #define UI_FLAG_OTP 0x20
 #define UI_FLAG_KEY_LOCK 0x40
-
+// Alternative function for button lookup
 static unsigned char g_const_btn_alternate[] = {
 		BTN_STATE_WAIT_LP, BTN_STATE_NONE, BTN_STATE_NONE, BTN_STATE_WAIT_REPEAT,
 		BTN_STATE_NONE, BTN_STATE_WAIT_REPEAT, BTN_STATE_NONE, BTN_STATE_NONE};
@@ -52,21 +52,21 @@ unsigned char g_seg_buffer[] = {0x55, 0x55, 0x55, 0x55, 0xff, 0xff, 0xff, 0xff};
 unsigned char g_led_buffer = 0;
 unsigned char g_view_id = 0;
 unsigned char g_sub_view_id = 0;
-unsigned char g_error_code = 0;
-unsigned char g_popup_fallback_view = 0;
-unsigned char g_popup_code = 0;
-unsigned char g_flags = 0;
-unsigned short g_settings_1 = 0;
+unsigned char g_error_code = 0; // Last error code
+unsigned char g_popup_fallback_view = 0; // View code, to return from Info/Error POPUP
+unsigned char g_popup_code = 0; // Message code for Info/Error POPUP
+unsigned char g_uic_flags = 0;
+unsigned short g_settings_1 = 0; // Current system settings (updated from system task)
 // Correction related variables
 unsigned char g_call_type = 0;
 unsigned char g_call_step = 0;
 
-unsigned short g_volt_adc_value = 0;
-unsigned short g_curr_adc_value = 0;
+unsigned short g_volt_real_value = 0;
+unsigned short g_curr_real_value = 0;
 unsigned short g_volt_set_value = 0;
 unsigned short g_curr_set_value = 0;
-unsigned short g_u_in_value = 0;
-unsigned short g_t_reg_value = 0;
+unsigned short g_uin_value = 0;
+unsigned short g_treg_value = 0;
 unsigned short g_top_row = 0;
 unsigned short g_btm_row = 0;
 
@@ -75,48 +75,47 @@ unsigned char g_blink_bit = 0;
 unsigned char g_blink_bit_divider = 0;
 
 unsigned char g_btn_on_hold = 0;
-unsigned char g_btn_time_counter = 0;
-unsigned char g_btn_timing_state = 0;
+unsigned char g_btn_af_counter = 0;
+unsigned char g_btn_af_state = 0;
 
 extern TaskHandle_t UIControlTaskHandle;
 extern QueueHandle_t xQueueUIEvent;
 extern QueueHandle_t xQueueSysEvent;
 extern QueueHandle_t xQueueButtonEvent;
 
-void checkButtonQueue();
-void checkEventQueue();
-void uicBtnTimedCheck();
-void processButtonPress(unsigned char btn_n);
-void renderView();
+void uic_checkButtonQueue();
+void uic_checkEventQueue();
+void uic_buttonAFPeriodicCheck();
+void uic_processButtonPress(unsigned char btn_n);
+void uic_renderView();
 void blinkDigit(unsigned char pos, unsigned char row);
-void uic_handleCallCommand(struct UIEventMessage message);
+void uic_handleCallResponse(struct UIEventMessage message);
 void showPopUp(unsigned char code);
 
 /* Code section */
-/*Notify (wake up) UI handle task*/
-void uicNotifyUITask(unsigned int event_type) {
+/* Notify (wake up) UI handle task */
+void uic_notifyUITask(unsigned int event_type) {
 	xTaskNotify(UIControlTaskHandle, event_type, eSetBits);
 }
 
 /* Main UI handle task */
-void TaskUIControl(void *arg) {
+void uic_taskUIControl(void *arg) {
 	unsigned int NotifiedValue;
 	unsigned int xResult;
 
-	renderView();
-	writeDisplayBuffer(g_seg_buffer, g_led_buffer);
+	uic_renderView();
+	dc_writeDisplayBuffer(g_seg_buffer, g_led_buffer);
 
 	while (1) {
 		xResult = xTaskNotifyWait( pdFALSE, 0xffffffff,	&NotifiedValue, pdMS_TO_TICKS( 800 ));
 
 		if (xResult == pdPASS) {
-			// A notification was received.  See which bits were set.
+			// A notification was received. See which bits were set.
 			if ((NotifiedValue & UI_EVENT_WAKE_UP) != 0) {
-				//renderView();
-				//writeDisplayBuffer(g_seg_buffer, g_led_buffer);
+				// Pass, nothing specific to do
 			}
 			if ((NotifiedValue & UI_EVENT_BTN_STATE) != 0) {
-
+				// Pass, nothing specific to do
 			}
 			if ((NotifiedValue & UI_EVENT_PERIODIC) != 0) {
 				g_blink_bit_divider++;
@@ -124,49 +123,51 @@ void TaskUIControl(void *arg) {
 					g_blink_bit = g_blink_bit ^ 1;
 					g_blink_bit_divider = 0;
 				}
-				uicBtnTimedCheck();
+				uic_buttonAFPeriodicCheck();
 			}
 		}
-		checkEventQueue();
-		checkButtonQueue();
-		renderView();
-		writeDisplayBuffer(g_seg_buffer, g_led_buffer);
+		uic_checkEventQueue();
+		uic_checkButtonQueue();
+		uic_renderView();
+		dc_writeDisplayBuffer(g_seg_buffer, g_led_buffer);
 	}
 }
 
-void uicTimedCheckUpdateBtn(unsigned char btn_n) {
+/* Update info on currently pressed button for AF handler */
+void uic_updateButtonAF(unsigned char btn_n) {
 	if (btn_n != 0) {
-		g_btn_timing_state = g_const_btn_alternate[btn_n - 1];
+		g_btn_af_state = g_const_btn_alternate[btn_n - 1];
 	}
 	else {
-		g_btn_timing_state = BTN_STATE_NONE;
+		g_btn_af_state = BTN_STATE_NONE;
 	}
 	g_btn_on_hold = btn_n;
-	g_btn_time_counter = 0;
+	g_btn_af_counter = 0;
 }
 
-void uicBtnTimedCheck() {
-	switch(g_btn_timing_state) {
+/* Periodically check and trigger alternative function for currently pressed button. */
+void uic_buttonAFPeriodicCheck() {
+	switch(g_btn_af_state) {
 	case BTN_STATE_WAIT_LP:
-		g_btn_time_counter++;
-		if (g_btn_time_counter >= BTN_LP_DELAY) {
-			g_btn_timing_state = BTN_STATE_NONE;
-			processButtonPress(g_btn_on_hold + 7);
+		g_btn_af_counter++;
+		if (g_btn_af_counter >= BTN_LP_DELAY) {
+			g_btn_af_state = BTN_STATE_NONE;
+			uic_processButtonPress(g_btn_on_hold + 7);
 		}
 		break;
 
 	case BTN_STATE_WAIT_REPEAT:
-		g_btn_time_counter++;
-		if (g_btn_time_counter >= BTN_REPEAT_DELAY) {
-			g_btn_timing_state = BTN_STATE_REPEAT;
-			processButtonPress(g_btn_on_hold);
+		g_btn_af_counter++;
+		if (g_btn_af_counter >= BTN_REPEAT_DELAY) {
+			g_btn_af_state = BTN_STATE_REPEAT;
+			uic_processButtonPress(g_btn_on_hold);
 			//Lock blink bit while fast repeat
 			g_blink_bit = 1;
 		}
 		break;
 
 	case BTN_STATE_REPEAT:
-		processButtonPress(g_btn_on_hold);
+		uic_processButtonPress(g_btn_on_hold);
 		//Lock blink bit while fast repeat
 		g_blink_bit = 1;
 		break;
@@ -174,24 +175,24 @@ void uicBtnTimedCheck() {
 }
 
 /* Process messages from 'button' queue */
-void checkButtonQueue() {
+void uic_checkButtonQueue() {
 	unsigned char btn_value;
 	while (xQueueReceive(xQueueButtonEvent, &btn_value, 0)) {
-		processButtonPress(btn_value);
-		uicTimedCheckUpdateBtn(btn_value);
+		uic_processButtonPress(btn_value);
+		uic_updateButtonAF(btn_value);
 	}
 }
 
 /* Process messages from event queue */
-void checkEventQueue() {
+void uic_checkEventQueue() {
 	struct UIEventMessage message;
 
 	while(xQueueReceive(xQueueUIEvent, &(message), 0)) {
 		switch (message.type) {
 
 		case UI_MSG_ADC_VALUES:
-			g_volt_adc_value = message.data[0];
-			g_curr_adc_value = message.data[1];
+			g_volt_real_value = message.data[0];
+			g_curr_real_value = message.data[1];
 			break;
 
 		case UI_MSG_OUT_SET_VALUES:
@@ -200,30 +201,30 @@ void checkEventQueue() {
 			break;
 
 		case UI_MSG_UIN_TREG_VALUES:
-			g_u_in_value = message.data[0];
-			g_t_reg_value = message.data[1];
+			g_uin_value = message.data[0];
+			g_treg_value = message.data[1];
 			// Check input voltage value
-			if (g_u_in_value < LO_UIN_TRESHOLD || (g_u_in_value - LO_UIN_DELTA) < (g_volt_set_value / 10)) {
-				g_flags |= UI_FLAG_LO_UIN;
+			if (g_uin_value < LO_UIN_TRESHOLD || (g_uin_value - LO_UIN_DELTA) < (g_volt_set_value / 10)) {
+				g_uic_flags |= UI_FLAG_LO_UIN;
 			}
-			if (g_u_in_value >= (LO_UIN_TRESHOLD + LO_UIN_HYST) && (g_u_in_value - LO_UIN_DELTA - LO_UIN_HYST) >= (g_volt_set_value / 10)) {
-				g_flags &= ~UI_FLAG_LO_UIN;
+			if (g_uin_value >= (LO_UIN_TRESHOLD + LO_UIN_HYST) && (g_uin_value - LO_UIN_DELTA - LO_UIN_HYST) >= (g_volt_set_value / 10)) {
+				g_uic_flags &= ~UI_FLAG_LO_UIN;
 			}
 			break;
 
 		case UI_MSG_CALL_STATE:
-			uic_handleCallCommand(message);
+			uic_handleCallResponse(message);
 			break;
 
 		case UI_MSG_OUT_STATE:
-			g_flags = (g_flags & ~UI_FLAG_OUT_STATE) | (message.data[0] & 0x01);
+			g_uic_flags = (g_uic_flags & ~UI_FLAG_OUT_STATE) | (message.data[0] & 0x01);
 			break;
 
 		case UI_MSG_OTP_STATE:
 			if (message.data[0] & 0x01) {
-				g_flags |= UI_FLAG_OTP;
+				g_uic_flags |= UI_FLAG_OTP;
 			} else {
-				g_flags &= ~UI_FLAG_OTP;
+				g_uic_flags &= ~UI_FLAG_OTP;
 			}
 			break;
 
@@ -234,7 +235,7 @@ void checkEventQueue() {
 		case UI_MSG_ERROR:
 			g_error_code = message.data[0];
 			if (message.data[1] == BLOCKING_ERROR) {
-				g_flags |= UI_FLAG_KEY_LOCK;
+				g_uic_flags |= UI_FLAG_KEY_LOCK;
 			}
 			showPopUp(POPUP_ERROR);
 			break;
@@ -247,7 +248,7 @@ void checkEventQueue() {
 }
 
 /* Messages to system task */
-void sendNewDACValues() {
+void uic_sendNewDACValues() {
 	struct SystemEventMessage message;
 	message.type = SYS_MSG_DAC_VALUES;
 	message.data[0] = g_volt_set_value;
@@ -255,10 +256,10 @@ void sendNewDACValues() {
 	xQueueSend(xQueueSysEvent, (void *) &message, 0);
 }
 
-void sendNewOutState() {
+void uic_sendNewOutState() {
 	struct SystemEventMessage message;
 	message.type = SYS_MSG_OUT_STATE;
-	message.data[0] = g_flags & 0x01;
+	message.data[0] = g_uic_flags & 0x01;
 	xQueueSend(xQueueSysEvent, (void *) &message, 0);
 }
 
@@ -284,10 +285,11 @@ void uic_sendResetCommand() {
 	xQueueSend(xQueueSysEvent, (void *) &message, 0);
 }
 
-void uic_handleCallCommand(struct UIEventMessage message) {
+/* Handle system task response regarding calibration state. */
+void uic_handleCallResponse(struct UIEventMessage message) {
 	switch (message.data[0]) {
-	case CALL_STATE_READY:
-		if (g_call_type) { // Skip confirmation for UIN correction (not needed)
+	case CALL_RESPONSE_READY:
+		if (g_call_type == CALL_TYPE_U_IN) { // Skip confirmation for UIN correction (not needed)
 			g_btm_row = CALL_REF_U_IN;
 			g_call_step = CALL_STEP_CORR_INPUT;
 		}
@@ -295,13 +297,13 @@ void uic_handleCallCommand(struct UIEventMessage message) {
 			g_call_step = CALL_STEP_CONFIRM;
 		}
 		break;
-	case CALL_STATE_STARTED:
+	case CALL_RESPONSE_STARTED:
 		g_call_step = CALL_STEP_RUN;
 		break;
-	case CALL_STATE_DONE:
+	case CALL_RESPONSE_DONE:
 		g_call_step = CALL_STEP_DONE;
 		break;
-	case CALL_STATE_FAIL:
+	case CALL_RESPONSE_FAIL:
 		g_call_step = CALL_STEP_FAIL;
 		g_error_code = message.data[1];
 		break;
@@ -320,6 +322,7 @@ void showPopUp(unsigned char code) {
 }
 
 /* Generic UI control methods */
+/* Increment specified digit in unsigned short value */
 unsigned short increment16ByPosition(unsigned short value, unsigned char pos, unsigned char min_step, unsigned short max_value) {
 	switch (pos) {
 	case 0:
@@ -338,6 +341,7 @@ unsigned short increment16ByPosition(unsigned short value, unsigned char pos, un
 	return value;
 }
 
+/* Decrement specified digit in unsigned short value */
 unsigned short decrement16ByPosition(unsigned short value, unsigned char pos, unsigned char min_step, unsigned short min_value) {
 	unsigned short diff;
 	switch (pos) {
@@ -375,8 +379,8 @@ unsigned char decrement8(unsigned char value, unsigned char min_value) {
 }
 
 /* View button handlers
- * Buttons: 0 - USET, 1 - ISET, 2 - <, 3 - ^, 4 - >, 5 - v, 7 - ON/OFF, 8 - USET LP
- * Generic */
+ * Buttons: 0 - USET, 1 - ISET, 2 - <, 3 - ^, 4 - >, 5 - v, 7 - ON/OFF, 8 - USET LP */
+/* Generic handlers */
 void uic_genericHandlerNop() {
 }
 
@@ -390,9 +394,9 @@ void uic_genericHandlerGoToMenu() {
 }
 
 void uic_genericHandlerToggleOutput() {
-	if ((g_flags & UI_FLAG_OTP) == 0) {
-		g_flags = g_flags ^ 0x01;
-		sendNewOutState();
+	if ((g_uic_flags & UI_FLAG_OTP) == 0) {
+		g_uic_flags = g_uic_flags ^ 0x01;
+		uic_sendNewOutState();
 	}
 }
 
@@ -424,12 +428,12 @@ static void (*main_view_methods_list[])() = {uic_mainViewGoToUSet, uic_mainViewG
 /* Voltage set handlers */
 void uic_voltSetViewIncVoltage() {
 	g_volt_set_value = increment16ByPosition(g_volt_set_value, g_cursor_pos, 1, 1800);
-	sendNewDACValues();
+	uic_sendNewDACValues();
 }
 
 void uic_voltSetViewDecVoltage() {
 	g_volt_set_value = decrement16ByPosition(g_volt_set_value, g_cursor_pos, 1, 10);
-	sendNewDACValues();
+	uic_sendNewDACValues();
 }
 
 static void (*voltage_set_view_methods_list[])() = {uic_genericHandlerGoToMain, uic_mainViewGoToISet, uic_genericHandlerCursorLeft,
@@ -438,12 +442,12 @@ static void (*voltage_set_view_methods_list[])() = {uic_genericHandlerGoToMain, 
 /* Current set handler */
 void uic_currSetViewIncCurrent() {
 	g_curr_set_value = increment16ByPosition(g_curr_set_value, g_cursor_pos, 1, 2600);
-	sendNewDACValues();
+	uic_sendNewDACValues();
 }
 
 void uic_currSetViewDecCurrent() {
 	g_curr_set_value = decrement16ByPosition(g_curr_set_value, g_cursor_pos, 1, 1);
-	sendNewDACValues();
+	uic_sendNewDACValues();
 }
 
 static void (*current_set_view_methods_list[])() = {uic_mainViewGoToUSet, uic_genericHandlerGoToMain, uic_genericHandlerCursorLeft,
@@ -540,10 +544,10 @@ void uic_callSubMenuDown() {
 }
 
 void uic_callSubMenuStart() {
-	if (g_flags & UI_FLAG_OTP) {
+	if (g_uic_flags & UI_FLAG_OTP) {
 		// If in OTP protection state, show popup and do not allow to enter in calibration state
 		showPopUp(POPUP_HI_T);
-	} else if (g_u_in_value < CALL_MIN_UIN) {
+	} else if (g_uin_value < CALL_MIN_UIN) {
 		// If input voltage lover than required minimum, show popup and do not allow to enter in calibration state
 		showPopUp(POPUP_LO_UIN);
 	} else {
@@ -691,8 +695,8 @@ static void (*call_view_methods_list[])() = {uic_genericHandlerNop, uic_callView
 	uic_callViewUp, uic_callViewRight, uic_callViewDown, uic_callViewGoNext, uic_genericHandlerNop};
 
 /* Button press handler */
-void processButtonPress(unsigned char btn_n) {
-	if (MASK_BIT(g_flags, UI_FLAG_KEY_LOCK)) {
+void uic_processButtonPress(unsigned char btn_n) {
+	if (MASK_BIT(g_uic_flags, UI_FLAG_KEY_LOCK)) {
 		return;
 	}
 	if (btn_n == 0) {
@@ -761,10 +765,10 @@ void processButtonPress(unsigned char btn_n) {
 			(*reset_confirm_view_methods_list[btn_n])();
 			break;
 	}
-
 }
 
 /* View render methods */
+/* Blink specific digit on display */
 void blinkDigit(unsigned char pos, unsigned char row) {
 	// row 1 - top, 0 - bottom
 	if (g_blink_bit == 0) {
@@ -785,120 +789,113 @@ unsigned char call_menu_text_strings[] = {GR_STR_U_OFF, GR_STR_I_OFF, GR_STR_U_H
 unsigned char call_view_text_strings_top[] = {GR_STR_CALL, GR_STR_BLANK, GR_STR_COR, GR_STR_CALL, GR_STR_DONE, GR_STR_FAIL};
 unsigned char call_view_text_strings_btm[] = {GR_STR_3DOT, GR_STR_OUT, GR_STR_BLANK, GR_STR_RUN, GR_STR_BLANK, GR_STR_E};
 
-/* #define CALL_STEP_WAIT_START 0
-#define CALL_STEP_CONFIRM 1
-#define CALL_STEP_CORR_INPUT 2
-#define CALL_STEP_RUN 3
-#define CALL_STEP_DONE 4
-#define CALL_STEP_FAIL 5
-*/
-
-void renderView() {
+/* Process current view, write display buffer. */
+void uic_renderView() {
 	switch (g_view_id) {
 
 	case VIEW_MAIN:
-		if ((g_flags & UI_FLAG_OTP) != 0 && g_blink_bit) {
-			grFormatStr(g_seg_buffer, GR_STR_OTP, 0);
-			grFormatStr(g_seg_buffer, GR_STR_BLANK, 4);
+		if ((g_uic_flags & UI_FLAG_OTP) != 0 && g_blink_bit) {
+			gr_FormatStr(g_seg_buffer, GR_STR_OTP, 0);
+			gr_FormatStr(g_seg_buffer, GR_STR_BLANK, 4);
 			break;
-		} else if (g_flags & UI_FLAG_LO_UIN) {
+		} else if (g_uic_flags & UI_FLAG_LO_UIN) {
 			if (g_blink_bit) {
-				grFormatStr(g_seg_buffer, GR_STR_LO, 0);
-				grFormatStr(g_seg_buffer, GR_STR_U_IN, 4);
+				gr_FormatStr(g_seg_buffer, GR_STR_LO, 0);
+				gr_FormatStr(g_seg_buffer, GR_STR_U_IN, 4);
 				break;
 			}
 		}
-		g_top_row = g_volt_adc_value;
-		g_btm_row = g_curr_adc_value;
-		grFormatInt4(g_seg_buffer, g_top_row, 0);
-		grSetDot(g_seg_buffer, 1);
-		grFormatInt4(g_seg_buffer, g_btm_row, 4);
-		grSetDot(g_seg_buffer, 4);
+		g_top_row = g_volt_real_value;
+		g_btm_row = g_curr_real_value;
+		gr_FormatInt4(g_seg_buffer, g_top_row, 0);
+		gr_SetDot(g_seg_buffer, 1);
+		gr_FormatInt4(g_seg_buffer, g_btm_row, 4);
+		gr_SetDot(g_seg_buffer, 4);
 		break;
 
 	case VIEW_USET:
 		g_top_row = g_volt_set_value;
-		g_btm_row = g_curr_adc_value;
-		grFormatInt4(g_seg_buffer, g_top_row, 0);
-		grSetDot(g_seg_buffer, 1);
-		grFormatInt4(g_seg_buffer, g_btm_row, 4);
-		grSetDot(g_seg_buffer, 4);
+		g_btm_row = g_curr_real_value;
+		gr_FormatInt4(g_seg_buffer, g_top_row, 0);
+		gr_SetDot(g_seg_buffer, 1);
+		gr_FormatInt4(g_seg_buffer, g_btm_row, 4);
+		gr_SetDot(g_seg_buffer, 4);
 		blinkDigit(g_cursor_pos, 1);
 		break;
 
 	case VIEW_CSET:
-		g_top_row = g_volt_adc_value;
+		g_top_row = g_volt_real_value;
 		g_btm_row = g_curr_set_value;
-		grFormatInt4(g_seg_buffer, g_top_row, 0);
-		grSetDot(g_seg_buffer, 1);
-		grFormatInt4(g_seg_buffer, g_btm_row, 4);
-		grSetDot(g_seg_buffer, 4);
+		gr_FormatInt4(g_seg_buffer, g_top_row, 0);
+		gr_SetDot(g_seg_buffer, 1);
+		gr_FormatInt4(g_seg_buffer, g_btm_row, 4);
+		gr_SetDot(g_seg_buffer, 4);
 		blinkDigit(g_cursor_pos, 0);
 		break;
 
 	case VIEW_MENU:
-		grFormatStr(g_seg_buffer, GR_STR_MENU, 0);
-		grFormatStr(g_seg_buffer, main_menu_text_strings[g_sub_view_id], 4);
+		gr_FormatStr(g_seg_buffer, GR_STR_MENU, 0);
+		gr_FormatStr(g_seg_buffer, main_menu_text_strings[g_sub_view_id], 4);
 		break;
 
 	case VIEW_PON_SATE:
-		grFormatStr(g_seg_buffer, GR_STR_PON, 0);
-		grFormatStr(g_seg_buffer, pon_view_text_strings[g_sub_view_id], 4);
+		gr_FormatStr(g_seg_buffer, GR_STR_PON, 0);
+		gr_FormatStr(g_seg_buffer, pon_view_text_strings[g_sub_view_id], 4);
 		break;
 
 	case VIEW_INFO_SM:
-		grFormatStr(g_seg_buffer, GR_STR_INFO, 0);
-		grFormatStr(g_seg_buffer, info_menu_text_strings[g_sub_view_id], 4);
+		gr_FormatStr(g_seg_buffer, GR_STR_INFO, 0);
+		gr_FormatStr(g_seg_buffer, info_menu_text_strings[g_sub_view_id], 4);
 		break;
 
 	case VIEW_CALL_SM:
-		grFormatStr(g_seg_buffer, GR_STR_CALL, 0);
-		grFormatStr(g_seg_buffer, call_menu_text_strings[g_sub_view_id], 4);
+		gr_FormatStr(g_seg_buffer, GR_STR_CALL, 0);
+		gr_FormatStr(g_seg_buffer, call_menu_text_strings[g_sub_view_id], 4);
 		break;
 
 	case VIEW_U_IN:
-		grFormatStr(g_seg_buffer, GR_STR_U_IN, 0);
-		grFormatStr(g_seg_buffer, GR_STR_BLANK, 4);
-		grFormatInt3(g_seg_buffer, g_u_in_value, 5);
-		grSetDot(g_seg_buffer, 6);
+		gr_FormatStr(g_seg_buffer, GR_STR_U_IN, 0);
+		gr_FormatStr(g_seg_buffer, GR_STR_BLANK, 4);
+		gr_FormatInt3(g_seg_buffer, g_uin_value, 5);
+		gr_SetDot(g_seg_buffer, 6);
 		break;
 
 	case VIEW_T_REG:
-		grFormatStr(g_seg_buffer, GR_STR_T_REG, 0);
-		grFormatStr(g_seg_buffer, GR_STR_GRAD, 4);
-		grFormatInt2(g_seg_buffer, g_t_reg_value, 5);
+		gr_FormatStr(g_seg_buffer, GR_STR_T_REG, 0);
+		gr_FormatStr(g_seg_buffer, GR_STR_GRAD, 4);
+		gr_FormatInt2(g_seg_buffer, g_treg_value, 5);
 		break;
 
 	case VIEW_CALL:
-		grFormatStr(g_seg_buffer, call_view_text_strings_top[g_call_step], 0);
-		grFormatStr(g_seg_buffer, call_view_text_strings_btm[g_call_step], 4);
+		gr_FormatStr(g_seg_buffer, call_view_text_strings_top[g_call_step], 0);
+		gr_FormatStr(g_seg_buffer, call_view_text_strings_btm[g_call_step], 4);
 		if (g_call_step == CALL_STEP_CORR_INPUT) {
-			grFormatInt4(g_seg_buffer, g_btm_row, 4);
+			gr_FormatInt4(g_seg_buffer, g_btm_row, 4);
 			switch (g_call_type) {
 			case CALL_TYPE_U_HI:
-				grSetDot(g_seg_buffer, 5);
+				gr_SetDot(g_seg_buffer, 5);
 				break;
 			case CALL_TYPE_I_HI:
-				grSetDot(g_seg_buffer, 4);
+				gr_SetDot(g_seg_buffer, 4);
 				break;
 			case CALL_TYPE_U_OFF:
-				grSetDot(g_seg_buffer, 6);
+				gr_SetDot(g_seg_buffer, 6);
 				break;
 			case CALL_TYPE_I_OFF:
-				grSetDot(g_seg_buffer, 5);
+				gr_SetDot(g_seg_buffer, 5);
 				break;
 			case CALL_TYPE_U_IN:
-				grSetDot(g_seg_buffer, 5);
+				gr_SetDot(g_seg_buffer, 5);
 				break;
 			}
 			blinkDigit(g_cursor_pos, 0);
 
 		} else if (g_call_step == CALL_STEP_CONFIRM) {
 			if (g_call_type == CALL_TYPE_I_HI || g_call_type == CALL_TYPE_I_OFF) {
-				grFormatStr(g_seg_buffer, GR_STR_SHORT, 0);
+				gr_FormatStr(g_seg_buffer, GR_STR_SHORT, 0);
 			}
 			if (g_call_type == CALL_TYPE_U_HI || g_call_type == CALL_TYPE_U_OFF) {
-				grFormatStr(g_seg_buffer, GR_STR_OPEN, 0);
+				gr_FormatStr(g_seg_buffer, GR_STR_OPEN, 0);
 			}
 		}
 		break;
@@ -908,55 +905,52 @@ void renderView() {
 		switch (g_popup_code) {
 		case POPUP_ERROR:
 			if (g_error_code == 0) {
-				grFormatStr(g_seg_buffer, GR_STR_NO, 0);
-				grFormatStr(g_seg_buffer, GR_STR_ERR, 4);
+				gr_FormatStr(g_seg_buffer, GR_STR_NO, 0);
+				gr_FormatStr(g_seg_buffer, GR_STR_ERR, 4);
 
 			} else {
-				grFormatStr(g_seg_buffer, GR_STR_ERR, 0);
-				grFormatStr(g_seg_buffer, GR_STR_E, 4);
-				grFormatInt3(g_seg_buffer, g_error_code, 5);
+				gr_FormatStr(g_seg_buffer, GR_STR_ERR, 0);
+				gr_FormatStr(g_seg_buffer, GR_STR_E, 4);
+				gr_FormatInt3(g_seg_buffer, g_error_code, 5);
 			}
 			break;
 		case POPUP_LO_UIN:
-			grFormatStr(g_seg_buffer, GR_STR_LO, 0);
-			grFormatStr(g_seg_buffer, GR_STR_U_IN, 4);
+			gr_FormatStr(g_seg_buffer, GR_STR_LO, 0);
+			gr_FormatStr(g_seg_buffer, GR_STR_U_IN, 4);
 			break;
 		case POPUP_HI_T:
-			grFormatStr(g_seg_buffer, GR_STR_HI, 0);
-			grFormatStr(g_seg_buffer, GR_STR_T_REG, 4);
+			gr_FormatStr(g_seg_buffer, GR_STR_HI, 0);
+			gr_FormatStr(g_seg_buffer, GR_STR_T_REG, 4);
 			break;
 		case POPUP_RUN:
-			grFormatStr(g_seg_buffer, GR_STR_RUN, 0);
-			grFormatStr(g_seg_buffer, GR_STR_BLANK, 4);
+			gr_FormatStr(g_seg_buffer, GR_STR_RUN, 0);
+			gr_FormatStr(g_seg_buffer, GR_STR_BLANK, 4);
 			break;
 		case POPUP_SETT_RESET:
-			grFormatStr(g_seg_buffer, GR_STR_SETT, 0);
-			grFormatStr(g_seg_buffer, GR_STR_REST, 4);
+			gr_FormatStr(g_seg_buffer, GR_STR_SETT, 0);
+			gr_FormatStr(g_seg_buffer, GR_STR_REST, 4);
 			break;
 		case POPUP_RESET_FAIL:
-			grFormatStr(g_seg_buffer, GR_STR_REST, 0);
-			grFormatStr(g_seg_buffer, GR_STR_FAIL, 4);
+			gr_FormatStr(g_seg_buffer, GR_STR_REST, 0);
+			gr_FormatStr(g_seg_buffer, GR_STR_FAIL, 4);
 			break;
 		}
 		break;
 
 	case VIEW_RESET_CONFIRM:
-		grFormatStr(g_seg_buffer, GR_STR_REST, 0);
+		gr_FormatStr(g_seg_buffer, GR_STR_REST, 0);
 		if (g_blink_bit) {
 			if (g_sub_view_id) {
-				grFormatStr(g_seg_buffer, GR_STR_YES, 4);
+				gr_FormatStr(g_seg_buffer, GR_STR_YES, 4);
 			} else {
-				grFormatStr(g_seg_buffer, GR_STR_NO, 4);
+				gr_FormatStr(g_seg_buffer, GR_STR_NO, 4);
 			}
 		}
 		else {
-			grFormatStr(g_seg_buffer, GR_STR_BLANK, 4);
+			gr_FormatStr(g_seg_buffer, GR_STR_BLANK, 4);
 		}
 		break;
 	}
-	g_led_buffer = g_flags & 0x01;
+	g_led_buffer = g_uic_flags & 0x01;
 }
-
-
-
 

@@ -1,22 +1,5 @@
+#include "stm32f10x.h"
 
-/*
-#ifndef SystemCallState_STRUCT
-#define SystemCallState_STRUCT
-
-unsigned char g_sys_call_type = 0;
-unsigned char g_call_flags = 0;
-unsigned short g_call_corr_value = 0;
-unsigned int g_call_dataset[CALL_DATASET_SIZE];
-unsigned char g_call_dataset_counter = 0;
-
-
-struct SystemCallState
-{
-	unsigned char type;
-	unsigned short data[2];
-};
-
-#endif*/
 #define INPUT_VOLTAGE_CORR_COEFF 8.55
 #define ZERO_DISPLAY_TRESHOLD 1000
 #define VREG_ERR_TRESHOLD 100
@@ -33,4 +16,4 @@ struct SystemCallState
 #define OTP_TRIG_TEMP 80
 #define OTP_FALLBACK_TEMP 65
 
-void TaskSystemControl(void *arg);
+void sys_taskSystemControl(void *arg);
